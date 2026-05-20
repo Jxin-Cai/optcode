@@ -5,7 +5,9 @@
  * Usage: node quality-gate.js <work-dir>
  * Output: JSON with verdict (PASS/WARN/FAIL), score, and per-dimension breakdown.
  */
-const { readState, DIMENSIONS } = require('./workflow-lib.js');
+const { readState, DIMENSIONS, readFrontmatter } = require('./workflow-lib.js');
+const { existsSync, readFileSync, readdirSync } = require('node:fs');
+const { join } = require('node:path');
 
 const workDir = process.argv[2];
 
@@ -21,18 +23,49 @@ const VERDICT_THRESHOLDS = {
   WARN: 50
 };
 
-function scoreDimension(dimState) {
+function getLastFixStatus(workDir, dimension) {
+  const fixDir = join(workDir, 'fix');
+  if (!existsSync(fixDir)) return null;
+  const files = readdirSync(fixDir)
+    .filter(f => f.startsWith(`${dimension}-round-`) && f.endsWith('-fix.md'))
+    .sort();
+  if (files.length === 0) return null;
+  const text = readFileSync(join(fixDir, files[files.length - 1]), 'utf8');
+  return readFrontmatter(text);
+}
+
+function scoreDimension(dimState, workDir, dimension) {
+  const base = SCORE_PER_DIMENSION;
   switch (dimState.status) {
     case 'pass':
-      return SCORE_PER_DIMENSION;
-    case 'failed':
-    case 'exceeded':
-      return 0;
+      return base;
+    case 'failed': {
+      const fixRate = dimState.issues_found > 0
+        ? dimState.issues_fixed / dimState.issues_found
+        : 0;
+      return base * 0.15 * fixRate;
+    }
+    case 'exceeded': {
+      const fixRate = dimState.issues_found > 0
+        ? dimState.issues_fixed / dimState.issues_found
+        : 0;
+      return base * (0.2 + 0.3 * fixRate);
+    }
     case 'in_progress':
-    case 'needs_fix':
-      return SCORE_PER_DIMENSION * 0.3;
+    case 'needs_fix': {
+      const fixMeta = getLastFixStatus(workDir, dimension);
+      if (fixMeta && fixMeta.status === 'DONE_WITH_CONCERNS') {
+        const fixRate = dimState.issues_found > 0
+          ? dimState.issues_fixed / dimState.issues_found
+          : 0;
+        return base * (0.3 + 0.3 * fixRate);
+      }
+      return base * 0.3;
+    }
+    case 'skipped':
+      return base * 0.5;
     case 'pending':
-      return SCORE_PER_DIMENSION * 0.5;
+      return base * 0.5;
     default:
       return 0;
   }
@@ -50,13 +83,17 @@ function main() {
 
   for (const dim of DIMENSIONS) {
     const dimState = state.dimensions[dim];
-    const score = scoreDimension(dimState);
+    const score = scoreDimension(dimState, workDir, dim);
     totalScore += score;
+    const fixRate = dimState.issues_found > 0
+      ? Math.round((dimState.issues_fixed / dimState.issues_found) * 100)
+      : null;
     breakdown[dim] = {
       status: dimState.status,
       score: Math.round(score * 10) / 10,
       issues_found: dimState.issues_found || 0,
       issues_fixed: dimState.issues_fixed || 0,
+      fix_rate: fixRate !== null ? `${fixRate}%` : 'N/A',
       rounds: dimState.round || 0
     };
   }

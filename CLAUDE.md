@@ -2,6 +2,10 @@
 
 本仓库包含 `optcode` Claude Code 插件——多维度代码审查与自动修复循环。
 
+## 规则
+
+- 每次提交代码到主干前，必须更新 `.claude-plugin/plugin.json` 中的 `version` 字段（遵循 semver：fix→patch，feat→minor，breaking→major）
+
 ## 组件
 
 | 组件 | 路径 | 说明 |

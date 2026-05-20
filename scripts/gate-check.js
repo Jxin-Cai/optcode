@@ -63,6 +63,12 @@ function checkGate(workDir, gateId) {
     if (!fm.result) return result(gateId, false, 'CR report missing result in frontmatter');
     if (!['pass', 'needs_fix', 'failed'].includes(fm.result)) return result(gateId, false, `invalid result: ${fm.result}`);
     if (fm.result === 'needs_fix' && !text.includes('ISSUE-')) return result(gateId, false, 'needs_fix report must contain at least one ISSUE');
+    if (fm.result === 'needs_fix' && fm.issues_count !== undefined) {
+      const actualIssues = [...text.matchAll(/###\s+ISSUE-\d+/g)].length;
+      if (actualIssues !== Number(fm.issues_count)) {
+        return result(gateId, false, `frontmatter issues_count (${fm.issues_count}) does not match actual ISSUE count (${actualIssues})`);
+      }
+    }
     return result(gateId, true);
   }
 
@@ -82,6 +88,15 @@ function checkGate(workDir, gateId) {
     if (!text.includes('## 自检结果')) return result(gateId, false, 'Fix report missing self-review section (## 自检结果)');
     if (!text.includes('## Diff 检查')) return result(gateId, false, 'Fix report missing diff check section (## Diff 检查)');
     if (!text.includes('## 行为保真检查')) return result(gateId, false, 'Fix report missing behavior preservation section (## 行为保真检查)');
+    if (fm.total_count !== undefined && fm.fixed_count !== undefined) {
+      const fixed = Number(fm.fixed_count);
+      const total = Number(fm.total_count);
+      if (fixed > total) return result(gateId, false, `fixed_count (${fixed}) exceeds total_count (${total})`);
+      const rows = [...text.matchAll(/\|\s*ISSUE-\d+\s*\|/g)].length;
+      if (rows > 0 && rows !== total) {
+        return result(gateId, false, `fix report table has ${rows} ISSUE rows but total_count is ${total}`);
+      }
+    }
     return result(gateId, true);
   }
 

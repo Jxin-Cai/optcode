@@ -3,7 +3,7 @@
  * optcode workflow state library.
  * Manages dimension loop state, round tracking, and audit logging.
  */
-const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync } = require('node:fs');
+const { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, renameSync } = require('node:fs');
 const { join } = require('node:path');
 
 const DIMENSIONS = [
@@ -20,7 +20,7 @@ const MAX_ROUNDS = 20;
 
 const STAGNATION_THRESHOLD = 3;
 
-const DIMENSION_RESULTS = ['pending', 'in_progress', 'pass', 'needs_fix', 'failed', 'exceeded'];
+const DIMENSION_RESULTS = ['pending', 'in_progress', 'pass', 'needs_fix', 'failed', 'exceeded', 'skipped'];
 
 const FIX_STATUSES = ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'];
 
@@ -57,7 +57,7 @@ function appendAudit(workDir, entry) {
   appendFileSync(auditLogFile(workDir), JSON.stringify(record) + '\n');
 }
 
-function initState(workDir, targetPaths, baseCommit) {
+function initState(workDir, targetPaths, baseCommit, skipDimensions = []) {
   const state = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -67,9 +67,10 @@ function initState(workDir, targetPaths, baseCommit) {
     current_round: 0,
     dimensions: {}
   };
+  const skipSet = new Set(skipDimensions);
   for (const dim of DIMENSIONS) {
     state.dimensions[dim] = {
-      status: 'pending',
+      status: skipSet.has(dim) ? 'skipped' : 'pending',
       round: 0,
       issues_found: 0,
       issues_fixed: 0,
@@ -79,7 +80,7 @@ function initState(workDir, targetPaths, baseCommit) {
   ensureDir(join(workDir, 'cr'));
   ensureDir(join(workDir, 'fix'));
   writeState(workDir, state);
-  appendAudit(workDir, { type: 'init', target_paths: targetPaths, base_commit: baseCommit });
+  appendAudit(workDir, { type: 'init', target_paths: targetPaths, base_commit: baseCommit, skipped_dimensions: skipDimensions });
   return state;
 }
 
@@ -96,12 +97,29 @@ function startDimension(workDir, dimension) {
   return state;
 }
 
+function extractIssueIds(workDir, dimension, round) {
+  const candidates = [
+    join(workDir, 'cr', `${dimension}-round-${round}.md`),
+    join(workDir, 'cr', `${dimension}-pass.md`),
+    join(workDir, 'cr', `${dimension}-failed.md`)
+  ];
+  for (const file of candidates) {
+    if (existsSync(file)) {
+      const text = readFileSync(file, 'utf8');
+      const ids = [...text.matchAll(/###\s+(ISSUE-\d+)/g)].map(m => m[1]);
+      return [...new Set(ids)];
+    }
+  }
+  return [];
+}
+
 function recordCrResult(workDir, dimension, round, result, issuesCount = 0) {
   const state = readState(workDir);
   if (!state) throw new Error('state not initialized');
   const dim = state.dimensions[dimension];
   if (!dim) throw new Error(`unknown dimension: ${dimension}`);
   dim.round = round;
+  const issueIds = extractIssueIds(workDir, dimension, round);
   if (result === 'pass') {
     dim.status = 'pass';
     state.current_dimension = null;
@@ -111,10 +129,10 @@ function recordCrResult(workDir, dimension, round, result, issuesCount = 0) {
   } else if (result === 'needs_fix') {
     dim.status = 'needs_fix';
     dim.issues_found += issuesCount;
-    dim.issue_history.push({ round, issues_count: issuesCount });
+    dim.issue_history.push({ round, issues_count: issuesCount, issue_ids: issueIds });
   }
   writeState(workDir, state);
-  appendAudit(workDir, { type: 'cr_result', dimension, round, result, issues_count: issuesCount });
+  appendAudit(workDir, { type: 'cr_result', dimension, round, result, issues_count: issuesCount, issue_ids: issueIds });
   return state;
 }
 
@@ -162,9 +180,31 @@ function detectStagnation(workDir, dimension) {
   if (history.length < STAGNATION_THRESHOLD) return { stagnant: false };
 
   const recent = history.slice(-STAGNATION_THRESHOLD);
+
+  const hasIssueIds = recent.every(h => h.issue_ids && h.issue_ids.length > 0);
+  if (hasIssueIds) {
+    const sets = recent.map(h => new Set(h.issue_ids));
+    let allStagnant = true;
+    for (let i = 1; i < sets.length; i++) {
+      const prev = sets[i - 1];
+      const curr = sets[i];
+      const overlap = [...curr].filter(id => prev.has(id)).length;
+      const overlapRate = overlap / Math.max(prev.size, curr.size);
+      if (overlapRate < 0.5) { allStagnant = false; break; }
+    }
+    if (allStagnant) {
+      return {
+        stagnant: true,
+        rounds_stagnant: STAGNATION_THRESHOLD,
+        recent_issues: recent,
+        reason: `same issues recurring over the last ${STAGNATION_THRESHOLD} rounds (IDs overlap ≥50%: ${recent.map(h => h.issue_ids.join(',')).join(' → ')})`
+      };
+    }
+    return { stagnant: false };
+  }
+
   const firstCount = recent[0].issues_count;
   const noImprovement = recent.every(h => h.issues_count >= firstCount);
-
   if (noImprovement) {
     return {
       stagnant: true,
@@ -253,6 +293,7 @@ module.exports = {
   appendAudit,
   initState,
   startDimension,
+  extractIssueIds,
   recordCrResult,
   recordFixResult,
   exceedDimension,

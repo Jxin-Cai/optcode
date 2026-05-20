@@ -50,7 +50,7 @@ function main() {
   };
 
   if (state) {
-    const completed = DIMENSIONS.filter(d => ['pass', 'failed', 'exceeded'].includes(state.dimensions[d].status));
+    const completed = DIMENSIONS.filter(d => ['pass', 'failed', 'exceeded', 'skipped'].includes(state.dimensions[d].status));
     const pending = DIMENSIONS.filter(d => state.dimensions[d].status === 'pending');
     output.state_summary = {
       completed: completed.length,
