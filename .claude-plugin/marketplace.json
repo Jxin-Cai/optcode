@@ -1,0 +1,22 @@
+{
+  "name": "optcode",
+  "description": "Claude Code plugin marketplace for OptCode",
+  "owner": {
+    "name": "jxin",
+    "email": "105760730@qq.com"
+  },
+  "plugins": [
+    {
+      "name": "optcode",
+      "source": "./",
+      "description": "Multi-dimension code review and auto-fix loop for Claude Code",
+      "version": "0.1.0",
+      "homepage": "https://github.com/Jxin-Cai/optcode",
+      "repository": "https://github.com/Jxin-Cai/optcode",
+      "author": {
+        "name": "jxin",
+        "email": "105760730@qq.com"
+      }
+    }
+  ]
+}
