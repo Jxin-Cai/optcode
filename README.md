@@ -18,8 +18,27 @@
 
 ## 安装
 
+### 1. 添加插件市场
+
 ```bash
-claude plugin add git@github.com:Jxin-Cai/optcode.git
+claude plugin marketplace add git@github.com:Jxin-Cai/optcode.git
+```
+
+### 2. 安装插件
+
+```bash
+claude plugin install optcode@optcode
+```
+
+### 管理命令
+
+```bash
+claude plugin marketplace list          # 查看已添加的市场
+claude plugin marketplace update        # 更新市场索引
+claude plugin list                      # 查看已安装插件
+claude plugin update optcode            # 更新插件
+claude plugin uninstall optcode         # 卸载插件
+claude plugin marketplace remove optcode  # 移除市场
 ```
 
 ## 使用
