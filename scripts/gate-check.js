@@ -2,22 +2,22 @@
 /**
  * optcode gate check — validates postconditions for each step.
  *
- * Usage: node gate-check.mjs <work-dir> <gate-id>
+ * Usage: node gate-check.js <work-dir> <gate-id>
  * Gates:
  *   - state-initialized: state.json exists and is valid
  *   - cr-complete:<dimension>:<round>: CR report exists with valid frontmatter
  *   - fix-complete:<dimension>:<round>: Fix report exists with valid frontmatter + self-review
  *   - summary-exists: summary.md exists
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { readState, readFrontmatter, appendAudit, FIX_STATUSES } from './workflow-lib.mjs';
+const { existsSync, readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { readState, readFrontmatter, appendAudit, FIX_STATUSES } = require('./workflow-lib.js');
 
 function result(gate, pass, reason = '') {
   return { pass, gate, reason };
 }
 
-export function checkGate(workDir, gateId) {
+function checkGate(workDir, gateId) {
   if (!workDir || !existsSync(workDir)) {
     return result(gateId, false, 'work directory does not exist');
   }
@@ -92,7 +92,7 @@ function main() {
   const workDir = process.argv[2];
   const gateId = process.argv[3];
   if (!workDir || !gateId) {
-    process.stderr.write('用法: node gate-check.mjs <work-dir> <gate-id>\n');
+    process.stderr.write('用法: node gate-check.js <work-dir> <gate-id>\n');
     process.exit(1);
   }
   const checked = checkGate(workDir, gateId);
@@ -102,3 +102,5 @@ function main() {
 }
 
 main();
+
+module.exports = { checkGate };

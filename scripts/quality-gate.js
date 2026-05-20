@@ -2,15 +2,15 @@
 /**
  * optcode quality gate — computes a quality score from dimension results.
  *
- * Usage: node quality-gate.mjs <work-dir>
+ * Usage: node quality-gate.js <work-dir>
  * Output: JSON with verdict (PASS/WARN/FAIL), score, and per-dimension breakdown.
  */
-import { readState, DIMENSIONS } from './workflow-lib.mjs';
+const { readState, DIMENSIONS } = require('./workflow-lib.js');
 
 const workDir = process.argv[2];
 
 if (!workDir) {
-  process.stderr.write('用法: node quality-gate.mjs <work-dir>\n');
+  process.stderr.write('用法: node quality-gate.js <work-dir>\n');
   process.exit(1);
 }
 

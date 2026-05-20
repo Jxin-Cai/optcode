@@ -3,8 +3,8 @@
  * SessionStart hook: injects active optcode workflow state into context.
  * Reminds the orchestrator of the current dimension, round, and iron rules.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+const { existsSync, readdirSync, readFileSync } = require('node:fs');
+const { join } = require('node:path');
 
 function readState(workDir) {
   const file = join(workDir, 'state.json');
@@ -38,7 +38,6 @@ function main() {
     const workDir = join(optcodeDir, entry.name);
     const state = readState(workDir);
     if (!state) continue;
-    // Check if all dimensions are done
     const allDone = Object.values(state.dimensions).every(d => ['pass', 'failed', 'exceeded'].includes(d.status));
     if (allDone && existsSync(join(workDir, 'summary.md'))) continue;
     activeWorkflows.push({ timestamp: entry.name, state });
@@ -56,7 +55,7 @@ function main() {
     }
     console.log('');
     console.log('OPTCODE RULES:');
-    console.log('  - orchestration-status.mjs = 唯一恢复点，每轮必调，不凭记忆跳步');
+    console.log('  - orchestration-status.js = 唯一恢复点，每轮必调，不凭记忆跳步');
     console.log('  - CR agent 不改代码，gate-check 必须通过才能继续');
     console.log('  - 产物落盘，不依赖上下文记忆');
   }

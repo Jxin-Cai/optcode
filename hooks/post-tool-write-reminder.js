@@ -3,8 +3,8 @@
  * PostToolUse hook: injects workflow reminders after Write to .optcode/ paths.
  * Reminds the orchestrator to run gate-check after writing CR/fix reports.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve, relative } from 'node:path';
+const { readFileSync } = require('node:fs');
+const { join, resolve, relative } = require('node:path');
 
 function readStdin() {
   try {
@@ -46,11 +46,11 @@ function main() {
     const match = subPath.match(/cr\/([^/]+)-round-(\d+)\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`CR report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.mjs ${join(cwd, parts[0], parts[1])} cr-complete:${dimension}:${round}`);
+      injectContext(`CR report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${join(cwd, parts[0], parts[1])} cr-complete:${dimension}:${round}`);
       return;
     }
     if (subPath.includes('-pass.md') || subPath.includes('-failed.md')) {
-      injectContext(`CR final report written: ${subPath}. Record result via dimension-status.mjs and proceed to next step.`);
+      injectContext(`CR final report written: ${subPath}. Record result via dimension-status.js and proceed to next step.`);
       return;
     }
   }
@@ -59,7 +59,7 @@ function main() {
     const match = subPath.match(/fix\/([^/]+)-round-(\d+)-fix\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`Fix report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.mjs ${join(cwd, parts[0], parts[1])} fix-complete:${dimension}:${round}`);
+      injectContext(`Fix report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${join(cwd, parts[0], parts[1])} fix-complete:${dimension}:${round}`);
       return;
     }
   }

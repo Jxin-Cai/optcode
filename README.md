@@ -63,7 +63,7 @@ claude plugin marketplace remove optcode  # 移除市场
 /optcode <paths>
     │
     ▼
-orchestration-status.mjs（每轮调用，确定 action）
+orchestration-status.js（每轮调用，确定 action）
     │
     ├─ init          → 初始化状态 + 文件清单
     ├─ start_dimension → 切入下一个维度
@@ -74,7 +74,7 @@ orchestration-status.mjs（每轮调用，确定 action）
     └─ summary       → 所有维度完成，输出总结报告
 ```
 
-每轮通过 `gate-check.mjs` 验证产物合规性，通过 `dimension-status.mjs` 推进状态机。
+每轮通过 `gate-check.js` 验证产物合规性，通过 `dimension-status.js` 推进状态机。
 
 ## 产物目录
 
@@ -98,10 +98,10 @@ orchestration-status.mjs（每轮调用，确定 action）
 | CR agent | `agents/agent-cr.md` | 审查 agent（opus） |
 | Fixer agent | `agents/agent-fixer.md` | 修复 agent（sonnet） |
 | 维度视角 | `dimensions/*.md` | 7 个维度的检查清单 |
-| 状态机 | `scripts/workflow-lib.mjs` | 原子写入、审计日志、停滞检测 |
-| 恢复点 | `scripts/orchestration-status.mjs` | 每轮判定 action |
-| 门检查 | `scripts/gate-check.mjs` | 产物后置条件验证 |
-| 质量门禁 | `scripts/quality-gate.mjs` | 质量评分（PASS/WARN/FAIL） |
+| 状态机 | `scripts/workflow-lib.js` | 原子写入、审计日志、停滞检测 |
+| 恢复点 | `scripts/orchestration-status.js` | 每轮判定 action |
+| 门检查 | `scripts/gate-check.js` | 产物后置条件验证 |
+| 质量门禁 | `scripts/quality-gate.js` | 质量评分（PASS/WARN/FAIL） |
 
 ## License
 

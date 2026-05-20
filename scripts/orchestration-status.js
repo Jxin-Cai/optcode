@@ -3,15 +3,15 @@
  * optcode orchestration status — the single source of truth for resume point.
  * Called by the main skill every turn to determine what to do next.
  *
- * Usage: node orchestration-status.mjs <work-dir>
+ * Usage: node orchestration-status.js <work-dir>
  * Output: JSON with action, dimension, round, reason
  */
-import { getResumePoint, readState, DIMENSIONS, MAX_ROUNDS } from './workflow-lib.mjs';
+const { getResumePoint, readState, DIMENSIONS, MAX_ROUNDS } = require('./workflow-lib.js');
 
 const workDir = process.argv[2];
 
 if (!workDir) {
-  process.stderr.write('用法: node orchestration-status.mjs <work-dir>\n');
+  process.stderr.write('用法: node orchestration-status.js <work-dir>\n');
   process.exit(1);
 }
 
@@ -23,7 +23,7 @@ function buildNextSteps(resume) {
     case 'init':
       return `Read ${P}/skills/optcode/references/action-init.md 执行启动流程。`;
     case 'start_dimension':
-      return `node ${P}/scripts/dimension-status.mjs ${W} --start ${dimension}`;
+      return `node ${P}/scripts/dimension-status.js ${W} --start ${dimension}`;
     case 'cr':
       return `启动 agent-cr(opus)，dimension=${dimension}，dimension_perspective=${P}/dimensions/${dimension}.md，round=${round}。完成后→ gate-check cr-complete:${dimension}:${round} → dimension-status --cr-done ${dimension} ${round} <result> <issues_count>`;
     case 'fix':
@@ -31,9 +31,9 @@ function buildNextSteps(resume) {
     case 'escalate':
       return `启动 agent-fixer(sonnet) + escalation_context，report_path=${W}/cr/${dimension}-round-${round}.md。收集前几轮 CR/fix 报告摘要注入 escalation_context。完成后→ gate-check fix-complete:${dimension}:${round} → dimension-status --fix-done`;
     case 'exceed':
-      return `node ${P}/scripts/dimension-status.mjs ${W} --exceed ${dimension}`;
+      return `node ${P}/scripts/dimension-status.js ${W} --exceed ${dimension}`;
     case 'summary':
-      return `获取 git diff --stat <base_commit>、dimension-status --summary、quality-gate.mjs 输出，Read summary-template.md，写入 ${W}/summary.md，gate-check summary-exists。`;
+      return `获取 git diff --stat <base_commit>、dimension-status --summary、quality-gate.js 输出，Read summary-template.md，写入 ${W}/summary.md，gate-check summary-exists。`;
     default:
       return '';
   }

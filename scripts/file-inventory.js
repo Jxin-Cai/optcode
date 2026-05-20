@@ -3,10 +3,10 @@
  * optcode file inventory generator.
  * Scans target paths for source code files and outputs a markdown table.
  *
- * Usage: node file-inventory.mjs <target_path1> [target_path2 ...]
+ * Usage: node file-inventory.js <target_path1> [target_path2 ...]
  * Output: markdown table with line counts, written to stdout.
  */
-import { execSync } from 'node:child_process';
+const { execSync } = require('node:child_process');
 
 const SOURCE_EXTENSIONS = [
   'go', 'java', 'py', 'js', 'ts', 'tsx', 'jsx', 'rs',
@@ -24,7 +24,7 @@ const EXCLUDE_DIRS = [
 const targets = process.argv.slice(2);
 
 if (targets.length === 0) {
-  process.stderr.write('用法: node file-inventory.mjs <target_path1> [target_path2 ...]\n');
+  process.stderr.write('用法: node file-inventory.js <target_path1> [target_path2 ...]\n');
   process.exit(1);
 }
 

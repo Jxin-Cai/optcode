@@ -3,20 +3,20 @@
  * optcode dimension status — manage dimension loop state transitions.
  *
  * Usage:
- *   node dimension-status.mjs <work-dir> --start <dimension>
- *   node dimension-status.mjs <work-dir> --cr-done <dimension> <round> <result> [issues_count]
- *   node dimension-status.mjs <work-dir> --fix-done <dimension> <round> <result> [fixed_count] [status]
- *   node dimension-status.mjs <work-dir> --exceed <dimension>
- *   node dimension-status.mjs <work-dir> --summary
+ *   node dimension-status.js <work-dir> --start <dimension>
+ *   node dimension-status.js <work-dir> --cr-done <dimension> <round> <result> [issues_count]
+ *   node dimension-status.js <work-dir> --fix-done <dimension> <round> <result> [fixed_count] [status]
+ *   node dimension-status.js <work-dir> --exceed <dimension>
+ *   node dimension-status.js <work-dir> --summary
  */
-import {
+const {
   readState,
   startDimension,
   recordCrResult,
   recordFixResult,
   exceedDimension,
   DIMENSIONS
-} from './workflow-lib.mjs';
+} = require('./workflow-lib.js');
 
 function fail(msg) {
   process.stderr.write(JSON.stringify({ error: msg }) + '\n');
@@ -30,7 +30,7 @@ function print(value) {
 function main() {
   const [workDir, command, ...args] = process.argv.slice(2);
   if (!workDir || !command) {
-    fail('用法: node dimension-status.mjs <work-dir> <command> [args...]');
+    fail('用法: node dimension-status.js <work-dir> <command> [args...]');
   }
 
   try {

@@ -3,10 +3,10 @@
  * optcode workflow state library.
  * Manages dimension loop state, round tracking, and audit logging.
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+const { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, renameSync } = require('node:fs');
+const { join } = require('node:path');
 
-export const DIMENSIONS = [
+const DIMENSIONS = [
   'dead-code',
   'duplication',
   'concurrency',
@@ -16,33 +16,33 @@ export const DIMENSIONS = [
   'legacy-safety'
 ];
 
-export const MAX_ROUNDS = 20;
+const MAX_ROUNDS = 20;
 
-export const STAGNATION_THRESHOLD = 3;
+const STAGNATION_THRESHOLD = 3;
 
-export const DIMENSION_RESULTS = ['pending', 'in_progress', 'pass', 'needs_fix', 'failed', 'exceeded'];
+const DIMENSION_RESULTS = ['pending', 'in_progress', 'pass', 'needs_fix', 'failed', 'exceeded'];
 
-export const FIX_STATUSES = ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'];
+const FIX_STATUSES = ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'];
 
-export function ensureDir(dir) {
+function ensureDir(dir) {
   mkdirSync(dir, { recursive: true });
 }
 
-export function stateFile(workDir) {
+function stateFile(workDir) {
   return join(workDir, 'state.json');
 }
 
-export function auditLogFile(workDir) {
+function auditLogFile(workDir) {
   return join(workDir, 'audit-log.jsonl');
 }
 
-export function readState(workDir) {
+function readState(workDir) {
   const file = stateFile(workDir);
   if (!existsSync(file)) return null;
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-export function writeState(workDir, state) {
+function writeState(workDir, state) {
   ensureDir(workDir);
   state.updated_at = new Date().toISOString();
   const file = stateFile(workDir);
@@ -51,13 +51,13 @@ export function writeState(workDir, state) {
   renameSync(tmp, file);
 }
 
-export function appendAudit(workDir, entry) {
+function appendAudit(workDir, entry) {
   ensureDir(workDir);
   const record = { ts: new Date().toISOString(), ...entry };
   appendFileSync(auditLogFile(workDir), JSON.stringify(record) + '\n');
 }
 
-export function initState(workDir, targetPaths, baseCommit) {
+function initState(workDir, targetPaths, baseCommit) {
   const state = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -83,7 +83,7 @@ export function initState(workDir, targetPaths, baseCommit) {
   return state;
 }
 
-export function startDimension(workDir, dimension) {
+function startDimension(workDir, dimension) {
   const state = readState(workDir);
   if (!state) throw new Error('state not initialized');
   if (!DIMENSIONS.includes(dimension)) throw new Error(`unknown dimension: ${dimension}`);
@@ -96,7 +96,7 @@ export function startDimension(workDir, dimension) {
   return state;
 }
 
-export function recordCrResult(workDir, dimension, round, result, issuesCount = 0) {
+function recordCrResult(workDir, dimension, round, result, issuesCount = 0) {
   const state = readState(workDir);
   if (!state) throw new Error('state not initialized');
   const dim = state.dimensions[dimension];
@@ -118,7 +118,7 @@ export function recordCrResult(workDir, dimension, round, result, issuesCount = 
   return state;
 }
 
-export function recordFixResult(workDir, dimension, round, result, fixedCount = 0, status = 'DONE') {
+function recordFixResult(workDir, dimension, round, result, fixedCount = 0, status = 'DONE') {
   const state = readState(workDir);
   if (!state) throw new Error('state not initialized');
   const dim = state.dimensions[dimension];
@@ -142,7 +142,7 @@ export function recordFixResult(workDir, dimension, round, result, fixedCount = 
   return state;
 }
 
-export function exceedDimension(workDir, dimension) {
+function exceedDimension(workDir, dimension) {
   const state = readState(workDir);
   if (!state) throw new Error('state not initialized');
   state.dimensions[dimension].status = 'exceeded';
@@ -152,7 +152,7 @@ export function exceedDimension(workDir, dimension) {
   return state;
 }
 
-export function detectStagnation(workDir, dimension) {
+function detectStagnation(workDir, dimension) {
   const state = readState(workDir);
   if (!state) return { stagnant: false };
   const dim = state.dimensions[dimension];
@@ -177,7 +177,7 @@ export function detectStagnation(workDir, dimension) {
   return { stagnant: false };
 }
 
-export function getResumePoint(workDir) {
+function getResumePoint(workDir) {
   const state = readState(workDir);
   if (!state) return { action: 'init', reason: 'state not initialized' };
 
@@ -211,7 +211,7 @@ export function getResumePoint(workDir) {
   return { action: 'summary', reason: 'all dimensions complete' };
 }
 
-export function readFrontmatter(text) {
+function readFrontmatter(text) {
   const lines = String(text || '').split('\n');
   if (lines[0] !== '---') return {};
   let end = -1;
@@ -231,10 +231,33 @@ export function readFrontmatter(text) {
   return result;
 }
 
-export function readAuditLog(workDir, tail = 0) {
+function readAuditLog(workDir, tail = 0) {
   const file = auditLogFile(workDir);
   if (!existsSync(file)) return [];
   const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean);
   const entries = lines.map(line => JSON.parse(line));
   return tail > 0 ? entries.slice(-tail) : entries;
 }
+
+module.exports = {
+  DIMENSIONS,
+  MAX_ROUNDS,
+  STAGNATION_THRESHOLD,
+  DIMENSION_RESULTS,
+  FIX_STATUSES,
+  ensureDir,
+  stateFile,
+  auditLogFile,
+  readState,
+  writeState,
+  appendAudit,
+  initState,
+  startDimension,
+  recordCrResult,
+  recordFixResult,
+  exceedDimension,
+  detectStagnation,
+  getResumePoint,
+  readFrontmatter,
+  readAuditLog
+};
