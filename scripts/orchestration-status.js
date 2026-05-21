@@ -33,7 +33,9 @@ function buildNextSteps(resume) {
     case 'exceed':
       return `node ${P}/scripts/dimension-status.js ${W} --exceed ${dimension}`;
     case 'summary':
-      return `获取 git diff --stat <base_commit>、dimension-status --summary、quality-gate.js 输出，Read summary-template.md，写入 ${W}/summary.md，gate-check summary-exists。`;
+      return `获取 git diff --stat <base_commit>、dimension-status --summary、quality-gate.js 输出，Read summary-template.md，写入 ${W}/summary.md，gate-check summary-exists，最后调 dimension-status --complete 标记完成。`;
+    case 'done':
+      return '此工作流已完成。如需重新审查，请直接调用 /optcode 开启新流程。';
     default:
       return '';
   }

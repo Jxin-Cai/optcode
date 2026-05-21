@@ -170,6 +170,16 @@ function exceedDimension(workDir, dimension) {
   return state;
 }
 
+function completeWorkflow(workDir) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  state.status = 'completed';
+  state.completed_at = new Date().toISOString();
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'workflow_completed' });
+  return state;
+}
+
 function detectStagnation(workDir, dimension) {
   const state = readState(workDir);
   if (!state) return { stagnant: false };
@@ -221,6 +231,10 @@ function getResumePoint(workDir) {
   const state = readState(workDir);
   if (!state) return { action: 'init', reason: 'state not initialized' };
 
+  if (state.status === 'completed') {
+    return { action: 'done', reason: 'workflow already completed', completed_at: state.completed_at };
+  }
+
   if (state.current_dimension) {
     const dim = state.dimensions[state.current_dimension];
     if (dim.round > MAX_ROUNDS) {
@@ -246,6 +260,11 @@ function getResumePoint(workDir) {
     if (state.dimensions[dim].status === 'pending') {
       return { action: 'start_dimension', dimension: dim, reason: `next pending dimension: ${dim}` };
     }
+  }
+
+  const summaryFile = join(workDir, 'summary.md');
+  if (existsSync(summaryFile)) {
+    return { action: 'done', reason: 'summary already exists, workflow finished' };
   }
 
   return { action: 'summary', reason: 'all dimensions complete' };
@@ -297,6 +316,7 @@ module.exports = {
   recordCrResult,
   recordFixResult,
   exceedDimension,
+  completeWorkflow,
   detectStagnation,
   getResumePoint,
   readFrontmatter,

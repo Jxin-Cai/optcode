@@ -7,6 +7,7 @@
  *   node dimension-status.js <work-dir> --cr-done <dimension> <round> <result> [issues_count]
  *   node dimension-status.js <work-dir> --fix-done <dimension> <round> <result> [fixed_count] [status]
  *   node dimension-status.js <work-dir> --exceed <dimension>
+ *   node dimension-status.js <work-dir> --complete
  *   node dimension-status.js <work-dir> --summary
  */
 const {
@@ -15,6 +16,7 @@ const {
   recordCrResult,
   recordFixResult,
   exceedDimension,
+  completeWorkflow,
   DIMENSIONS
 } = require('./workflow-lib.js');
 
@@ -66,6 +68,11 @@ function main() {
         if (!dimension) fail('--exceed needs dimension');
         const state = exceedDimension(workDir, dimension);
         print({ exceeded: true, dimension, state: state.dimensions[dimension] });
+        break;
+      }
+      case '--complete': {
+        const state = completeWorkflow(workDir);
+        print({ completed: true, completed_at: state.completed_at });
         break;
       }
       case '--summary': {

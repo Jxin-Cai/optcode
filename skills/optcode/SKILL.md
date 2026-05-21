@@ -20,6 +20,10 @@ argument-hint: "<目标路径，多个用逗号分隔>"
 
 Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/action-init.md` 执行启动流程。
 
+## action = `done`
+
+上一次工作流已完成，直接走 init 开启新流程。
+
 ## 维度执行循环
 
 每轮：调 `node ${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js ${WORK_DIR}` → 取 action → 按下方路由执行 → 回到本步骤。
@@ -79,7 +83,8 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --exceed <dim
 4. Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/summary-template.md`
 5. 写入 `${WORK_DIR}/summary.md`
 6. `node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} summary-exists`
-7. 向用户展示总结摘要
+7. `node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --complete`
+8. 向用户展示总结摘要
 
 ---
 
