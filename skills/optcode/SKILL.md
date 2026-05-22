@@ -63,7 +63,9 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --start <dime
 
 ### action = `cr`
 
-启动 **agent-cr**（opus），TASK：
+必须先启动 **agent-cr**（opus）并等待 agent 返回。禁止在 agent-cr 返回前运行 `gate-check cr-complete`。
+
+TASK：
 - `work_dir`: `${WORK_DIR}`
 - `target_paths`: 目标路径
 - `dimension` / `dimension_perspective`: `${CLAUDE_PLUGIN_ROOT}/dimensions/<dimension>.md`
@@ -71,7 +73,12 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --start <dime
 - `prev_report`: round>1 时为 `${WORK_DIR}/cr/<dimension>-round-<round-1>.md`
 - `file_inventory`: `${WORK_DIR}/file-inventory.md`
 
-完成后：
+agent-cr 必须写入以下任一报告后才算完成：
+- `${WORK_DIR}/cr/<dimension>-round-<round>.md`（result: needs_fix）
+- `${WORK_DIR}/cr/<dimension>-pass.md`（result: pass）
+- `${WORK_DIR}/cr/<dimension>-failed.md`（result: failed）
+
+确认报告存在后：
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} cr-complete:<dimension>:<round>
 node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-done <dimension> <round> <result> <issues_count>
@@ -79,12 +86,14 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-done <di
 
 ### action = `fix`
 
-启动 **agent-fixer**（sonnet），TASK：
+必须先启动 **agent-fixer**（sonnet）并等待 agent 返回。禁止在 agent-fixer 返回前运行 `gate-check fix-complete`。
+
+TASK：
 - `work_dir`: `${WORK_DIR}`
 - `report_path`: `${WORK_DIR}/cr/<dimension>-round-<round>.md`
 - `dimension` / `round`
 
-完成后：
+确认 `${WORK_DIR}/fix/<dimension>-round-<round>-fix.md` 存在后：
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} fix-complete:<dimension>:<round>
 node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-done <dimension> <round> <result> <fixed_count> <status>
@@ -118,7 +127,7 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --exceed <dim
 <HARD-GATE>
 1. orchestration-status 输出 = 唯一恢复点，不凭记忆决定下一步
 2. 每轮必须调用恢复点脚本
-3. gate-check 通过才能继续
+3. gate-check 通过才能继续，且 cr/fix gate 必须在对应 agent 返回并写入报告之后执行
 4. CR agent 不改代码，所有修改由 fixer 执行
 5. 产物必须落盘，不依赖上下文记忆
 6. 20 轮上限由脚本强制执行
