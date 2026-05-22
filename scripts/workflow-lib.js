@@ -16,6 +16,10 @@ const DIMENSIONS = [
   'legacy-safety'
 ];
 
+const MODES = ['light', 'deep', 'auto'];
+
+const DEFAULT_MODE = 'light';
+
 const MAX_ROUNDS = 20;
 
 const STAGNATION_THRESHOLD = 3;
@@ -57,12 +61,56 @@ function appendAudit(workDir, entry) {
   appendFileSync(auditLogFile(workDir), JSON.stringify(record) + '\n');
 }
 
-function initState(workDir, targetPaths, baseCommit, skipDimensions = []) {
+function normalizeMode(mode = DEFAULT_MODE) {
+  if (!MODES.includes(mode)) throw new Error(`unknown mode: ${mode}`);
+  return mode;
+}
+
+function buildPreflight(mode) {
+  if (mode !== 'auto') return null;
+  return {
+    status: 'pending',
+    recommended_mode: null,
+    reason: null,
+    signals: {},
+    completed_at: null
+  };
+}
+
+function buildDeepPlan(workDir, mode) {
+  if (mode !== 'deep') return null;
+  return {
+    status: 'pending',
+    path: join(workDir, 'deep-plan.md'),
+    completed_at: null
+  };
+}
+
+function getEffectiveMode(state) {
+  if (!state) return DEFAULT_MODE;
+  const mode = state.mode || DEFAULT_MODE;
+  if (mode === 'auto') return state.resolved_mode || 'auto';
+  return state.resolved_mode || mode;
+}
+
+function initState(workDir, targetPaths, baseCommit, skipDimensions = [], options = {}) {
+  const mode = normalizeMode(options.mode || DEFAULT_MODE);
   const state = {
+    schema_version: 2,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     target_paths: targetPaths,
     base_commit: baseCommit,
+    mode,
+    requested_mode: options.requested_mode || mode,
+    resolved_mode: mode === 'auto' ? null : mode,
+    init_options: {
+      diff: Boolean(options.diff),
+      diff_base_ref: options.diff_base_ref || null,
+      skip_dimensions: skipDimensions
+    },
+    preflight: buildPreflight(mode),
+    deep_plan: buildDeepPlan(workDir, mode),
     current_dimension: null,
     current_round: 0,
     dimensions: {}
@@ -80,7 +128,15 @@ function initState(workDir, targetPaths, baseCommit, skipDimensions = []) {
   ensureDir(join(workDir, 'cr'));
   ensureDir(join(workDir, 'fix'));
   writeState(workDir, state);
-  appendAudit(workDir, { type: 'init', target_paths: targetPaths, base_commit: baseCommit, skipped_dimensions: skipDimensions });
+  appendAudit(workDir, {
+    type: 'init',
+    target_paths: targetPaths,
+    base_commit: baseCommit,
+    mode,
+    resolved_mode: state.resolved_mode,
+    init_options: state.init_options,
+    skipped_dimensions: skipDimensions
+  });
   return state;
 }
 
@@ -180,6 +236,41 @@ function completeWorkflow(workDir) {
   return state;
 }
 
+function recordPreflightResult(workDir, recommendedMode, reason = '', signals = {}) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  if (!['light', 'deep'].includes(recommendedMode)) throw new Error(`invalid recommended mode: ${recommendedMode}`);
+  state.mode = state.mode || 'auto';
+  state.preflight = {
+    status: 'completed',
+    recommended_mode: recommendedMode,
+    reason,
+    signals,
+    completed_at: new Date().toISOString()
+  };
+  state.resolved_mode = recommendedMode;
+  if (recommendedMode === 'deep' && !state.deep_plan) {
+    state.deep_plan = buildDeepPlan(workDir, 'deep');
+  }
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'preflight_result', recommended_mode: recommendedMode, reason, signals });
+  return state;
+}
+
+function recordDeepPlanDone(workDir) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  state.deep_plan = state.deep_plan || buildDeepPlan(workDir, 'deep');
+  state.deep_plan.status = 'completed';
+  state.deep_plan.path = state.deep_plan.path || join(workDir, 'deep-plan.md');
+  state.deep_plan.completed_at = new Date().toISOString();
+  state.status = 'completed';
+  state.completed_at = state.deep_plan.completed_at;
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'deep_plan_completed', path: state.deep_plan.path });
+  return state;
+}
+
 function detectStagnation(workDir, dimension) {
   const state = readState(workDir);
   if (!state) return { stagnant: false };
@@ -233,6 +324,19 @@ function getResumePoint(workDir) {
 
   if (state.status === 'completed') {
     return { action: 'done', reason: 'workflow already completed', completed_at: state.completed_at };
+  }
+
+  const mode = state.mode || DEFAULT_MODE;
+  if (mode === 'auto' && (!state.preflight || state.preflight.status !== 'completed')) {
+    return { action: 'preflight', reason: 'auto mode requires preflight before selecting workflow' };
+  }
+
+  const effectiveMode = getEffectiveMode(state);
+  if (effectiveMode === 'deep') {
+    if (!state.deep_plan || state.deep_plan.status !== 'completed') {
+      return { action: 'deep_plan', reason: 'deep mode runs plan-only structural diagnosis' };
+    }
+    return { action: 'done', reason: 'deep plan already completed', completed_at: state.deep_plan.completed_at };
   }
 
   if (state.current_dimension) {
@@ -300,6 +404,8 @@ function readAuditLog(workDir, tail = 0) {
 
 module.exports = {
   DIMENSIONS,
+  MODES,
+  DEFAULT_MODE,
   MAX_ROUNDS,
   STAGNATION_THRESHOLD,
   DIMENSION_RESULTS,
@@ -310,6 +416,7 @@ module.exports = {
   readState,
   writeState,
   appendAudit,
+  normalizeMode,
   initState,
   startDimension,
   extractIssueIds,
@@ -317,6 +424,8 @@ module.exports = {
   recordFixResult,
   exceedDimension,
   completeWorkflow,
+  recordPreflightResult,
+  recordDeepPlanDone,
   detectStagnation,
   getResumePoint,
   readFrontmatter,

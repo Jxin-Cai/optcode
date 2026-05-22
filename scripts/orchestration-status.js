@@ -22,6 +22,10 @@ function buildNextSteps(resume) {
   switch (action) {
     case 'init':
       return `Read ${P}/skills/optcode/references/action-init.md 执行启动流程。`;
+    case 'preflight':
+      return `读取 ${W}/state.json 和 ${W}/file-inventory.md，保守判断 recommended_mode=light|deep，写入 ${W}/preflight.md，然后执行 node ${P}/scripts/dimension-status.js ${W} --preflight-done <light|deep> "<reason>" '{"file_count":0,"total_lines":0}'。不确定时选择 light。`;
+    case 'deep_plan':
+      return `Read ${P}/skills/optcode/references/deep-plan-template.md，读取 ${W}/file-inventory.md，只做结构诊断和分阶段计划，不修改业务代码；写入 ${W}/deep-plan.md → node ${P}/scripts/gate-check.js ${W} deep-plan-exists → node ${P}/scripts/dimension-status.js ${W} --deep-plan-done。`;
     case 'start_dimension':
       return `node ${P}/scripts/dimension-status.js ${W} --start ${dimension}`;
     case 'cr':
@@ -55,6 +59,10 @@ function main() {
     const completed = DIMENSIONS.filter(d => ['pass', 'failed', 'exceeded', 'skipped'].includes(state.dimensions[d].status));
     const pending = DIMENSIONS.filter(d => state.dimensions[d].status === 'pending');
     output.state_summary = {
+      mode: state.mode || 'light',
+      resolved_mode: state.resolved_mode || null,
+      preflight: state.preflight || null,
+      deep_plan: state.deep_plan || null,
       completed: completed.length,
       pending: pending.length,
       total: DIMENSIONS.length,

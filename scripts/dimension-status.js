@@ -6,6 +6,8 @@
  *   node dimension-status.js <work-dir> --start <dimension>
  *   node dimension-status.js <work-dir> --cr-done <dimension> <round> <result> [issues_count]
  *   node dimension-status.js <work-dir> --fix-done <dimension> <round> <result> [fixed_count] [status]
+ *   node dimension-status.js <work-dir> --preflight-done <light|deep> [reason] [signals_json]
+ *   node dimension-status.js <work-dir> --deep-plan-done
  *   node dimension-status.js <work-dir> --exceed <dimension>
  *   node dimension-status.js <work-dir> --complete
  *   node dimension-status.js <work-dir> --summary
@@ -15,6 +17,8 @@ const {
   startDimension,
   recordCrResult,
   recordFixResult,
+  recordPreflightResult,
+  recordDeepPlanDone,
   exceedDimension,
   completeWorkflow,
   DIMENSIONS
@@ -27,6 +31,17 @@ function fail(msg) {
 
 function print(value) {
   console.log(JSON.stringify(value, null, 2));
+}
+
+function parseSignals(raw) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail('signals_json must be an object');
+    return parsed;
+  } catch (err) {
+    fail(`invalid signals_json: ${err.message}`);
+  }
 }
 
 function main() {
@@ -63,6 +78,18 @@ function main() {
         print({ recorded: true, dimension, round, result, status: fixStatus, state: state.dimensions[dimension] });
         break;
       }
+      case '--preflight-done': {
+        const [recommendedMode, reason = '', signalsJson] = args;
+        if (!recommendedMode) fail('--preflight-done needs recommended mode');
+        const state = recordPreflightResult(workDir, recommendedMode, reason, parseSignals(signalsJson));
+        print({ recorded: true, recommended_mode: recommendedMode, resolved_mode: state.resolved_mode, preflight: state.preflight });
+        break;
+      }
+      case '--deep-plan-done': {
+        const state = recordDeepPlanDone(workDir);
+        print({ completed: true, deep_plan: state.deep_plan, completed_at: state.completed_at });
+        break;
+      }
       case '--exceed': {
         const dimension = args[0];
         if (!dimension) fail('--exceed needs dimension');
@@ -79,6 +106,10 @@ function main() {
         const state = readState(workDir);
         if (!state) fail('state not initialized');
         const summary = {
+          mode: state.mode || 'light',
+          resolved_mode: state.resolved_mode || null,
+          preflight: state.preflight || null,
+          deep_plan: state.deep_plan || null,
           current_dimension: state.current_dimension,
           current_round: state.current_round,
           dimensions: {}

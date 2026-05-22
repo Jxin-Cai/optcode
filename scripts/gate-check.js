@@ -8,6 +8,7 @@
  *   - cr-complete:<dimension>:<round>: CR report exists with valid frontmatter
  *   - fix-complete:<dimension>:<round>: Fix report exists with valid frontmatter + self-review
  *   - summary-exists: summary.md exists
+ *   - deep-plan-exists: deep-plan.md exists with required structure
  */
 const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
@@ -35,6 +36,17 @@ function checkGate(workDir, gateId) {
     if (!existsSync(summaryPath)) return result(gateId, false, 'summary.md missing');
     const text = readFileSync(summaryPath, 'utf8');
     if (text.length < 100) return result(gateId, false, 'summary.md has insufficient content');
+    return result(gateId, true);
+  }
+
+  if (gateId === 'deep-plan-exists') {
+    const planPath = join(workDir, 'deep-plan.md');
+    if (!existsSync(planPath)) return result(gateId, false, 'deep-plan.md missing');
+    const text = readFileSync(planPath, 'utf8');
+    if (text.length < 300) return result(gateId, false, 'deep-plan.md has insufficient content');
+    const requiredSections = ['## 结构诊断', '## 风险分层', '## 分阶段实施计划', '## 不在本阶段执行的改动'];
+    const missing = requiredSections.filter(section => !text.includes(section));
+    if (missing.length > 0) return result(gateId, false, `deep-plan.md missing sections: ${missing.join(', ')}`);
     return result(gateId, true);
   }
 

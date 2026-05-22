@@ -2,7 +2,17 @@
 
 多维度代码审查与自动修复循环 —— Claude Code 插件。
 
-通过 7 个维度依次审查代码，发现问题后自动修复，形成 **CR → 修复 → diff 复核** 的闭环。
+通过轻量/重度/自动三种模式按需治理代码质量：轻量模式执行 7 个维度的 **CR → 修复 → diff 复核** 闭环；重度模式先输出结构诊断与分阶段重构计划；自动模式先预检再选择合适路径。
+
+## 模式
+
+| 模式 | 行为 | 是否修改代码 |
+|------|------|--------------|
+| `light` | 现有 7 维 CR/fix 循环，适合局部清理和低风险修复 | 是 |
+| `deep` | 结构诊断、风险分层、分阶段实施计划，适合大类拆分、领域沉淀、公共复用规划 | 否 |
+| `auto` | 先 preflight，再保守选择 `light` 或 `deep` plan-only | 视决策而定 |
+
+不传 `--mode` 时默认 `light`，行为与旧版本一致。
 
 ## 审查维度
 
@@ -44,7 +54,7 @@ claude plugin marketplace remove optcode  # 移除市场
 ## 使用
 
 ```bash
-# 审查当前目录
+# 审查当前目录（默认 light）
 /optcode
 
 # 审查指定路径
@@ -55,6 +65,28 @@ claude plugin marketplace remove optcode  # 移除市场
 
 # 审查指定文件
 /optcode src/main.go,src/handler.go
+
+# 显式轻量模式
+/optcode --mode light src/
+
+# 重度结构诊断，只生成 deep-plan.md，不修改代码
+/optcode --mode deep src/
+
+# 自动预检后选择 light 或 deep plan-only
+/optcode --mode auto src/
+
+# 也可以使用 --profile 作为 --mode 的别名
+/optcode --profile auto src/
+
+# 仅审查 git 变更文件
+/optcode --diff
+/optcode --diff main
+
+# 跳过指定轻量维度
+/optcode --skip style,design src/
+
+# 组合使用
+/optcode --mode auto --diff main
 ```
 
 ## 工作流程
@@ -65,13 +97,15 @@ claude plugin marketplace remove optcode  # 移除市场
     ▼
 orchestration-status.js（每轮调用，确定 action）
     │
-    ├─ init          → 初始化状态 + 文件清单
-    ├─ start_dimension → 切入下一个维度
-    ├─ cr            → agent-cr(opus) 审查，输出 CR 报告
-    ├─ fix           → agent-fixer(sonnet) 修复，输出 fix 报告
-    ├─ escalate      → 停滞检测后升级修复策略
-    ├─ exceed        → 超出轮次上限，跳过维度
-    └─ summary       → 所有维度完成，输出总结报告
+    ├─ init             → 初始化状态 + 文件清单
+    ├─ preflight        → auto 模式预检，选择 light/deep
+    ├─ deep_plan        → deep 模式结构诊断与计划
+    ├─ start_dimension  → light 模式切入下一个维度
+    ├─ cr               → agent-cr(opus) 审查，输出 CR 报告
+    ├─ fix              → agent-fixer(sonnet) 修复，输出 fix 报告
+    ├─ escalate         → 停滞检测后升级修复策略
+    ├─ exceed           → 超出轮次上限，跳过维度
+    └─ summary          → 所有维度完成，输出总结报告
 ```
 
 每轮通过 `gate-check.js` 验证产物合规性，通过 `dimension-status.js` 推进状态机。
@@ -85,6 +119,8 @@ orchestration-status.js（每轮调用，确定 action）
 ├── state.json          # 工作流状态
 ├── audit-log.jsonl     # 审计日志
 ├── file-inventory.md   # 文件清单
+├── preflight.md        # auto 模式预检结果
+├── deep-plan.md        # deep 模式结构诊断计划
 ├── cr/                 # CR 报告
 ├── fix/                # 修复报告
 └── summary.md          # 最终总结
