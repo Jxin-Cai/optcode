@@ -18,6 +18,46 @@ function result(gate, pass, reason = '') {
   return { pass, gate, reason };
 }
 
+function splitIssueBlocks(text) {
+  const matches = [...text.matchAll(/^###\s+ISSUE-\d+[^\n]*$/gm)];
+  return matches.map((match, index) => {
+    const start = match.index;
+    const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
+    return text.slice(start, end);
+  });
+}
+
+function parseIssueField(block, label) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = block.match(new RegExp(`- \\*\\*${escaped}\\*\\*:\\s*([^\\n]+)`));
+  return match ? match[1].trim() : null;
+}
+
+function validateCrIssues(text, expectedCount) {
+  const blocks = splitIssueBlocks(text);
+  if (expectedCount !== undefined && blocks.length !== Number(expectedCount)) {
+    return `frontmatter issues_count (${expectedCount}) does not match actual ISSUE count (${blocks.length})`;
+  }
+  for (const block of blocks) {
+    const id = (block.match(/^###\s+(ISSUE-\d+)/) || [])[1] || 'ISSUE-unknown';
+    const confidence = Number(parseIssueField(block, '置信度'));
+    if (!Number.isFinite(confidence)) return `${id} missing numeric confidence`;
+    if (confidence < 80 || confidence > 100) return `${id} confidence must be 80-100, got ${confidence}`;
+    const scope = parseIssueField(block, '范围内问题');
+    if (!['yes', 'no'].includes(scope)) return `${id} missing 范围内问题 yes/no`;
+    const preExisting = parseIssueField(block, 'Pre-existing');
+    if (!['yes', 'no', 'unknown'].includes(preExisting)) return `${id} missing Pre-existing yes/no/unknown`;
+    const verification = parseIssueField(block, '验证方式');
+    if (!verification) return `${id} missing 验证方式`;
+    if (!parseIssueField(block, '文件')) return `${id} missing 文件`;
+    if (!parseIssueField(block, '位置')) return `${id} missing 位置`;
+    if (!block.includes('- **代码证据**:')) return `${id} missing 代码证据`;
+    if (!block.includes('- **修复方案**:')) return `${id} missing 修复方案`;
+    if (!block.includes('- **预期修复后代码**:')) return `${id} missing 预期修复后代码`;
+  }
+  return '';
+}
+
 function checkGate(workDir, gateId) {
   if (!workDir || !existsSync(workDir)) {
     return result(gateId, false, 'work directory does not exist');
@@ -75,11 +115,9 @@ function checkGate(workDir, gateId) {
     if (!fm.result) return result(gateId, false, 'CR report missing result in frontmatter');
     if (!['pass', 'needs_fix', 'failed'].includes(fm.result)) return result(gateId, false, `invalid result: ${fm.result}`);
     if (fm.result === 'needs_fix' && !text.includes('ISSUE-')) return result(gateId, false, 'needs_fix report must contain at least one ISSUE');
-    if (fm.result === 'needs_fix' && fm.issues_count !== undefined) {
-      const actualIssues = [...text.matchAll(/###\s+ISSUE-\d+/g)].length;
-      if (actualIssues !== Number(fm.issues_count)) {
-        return result(gateId, false, `frontmatter issues_count (${fm.issues_count}) does not match actual ISSUE count (${actualIssues})`);
-      }
+    if (fm.result === 'needs_fix') {
+      const issueError = validateCrIssues(text, fm.issues_count);
+      if (issueError) return result(gateId, false, issueError);
     }
     return result(gateId, true);
   }
@@ -94,7 +132,7 @@ function checkGate(workDir, gateId) {
     const text = readFileSync(fixFile, 'utf8');
     const fm = readFrontmatter(text);
     if (!fm.result) return result(gateId, false, 'Fix report missing result in frontmatter');
-    if (!['success', 'partial', 'failed'].includes(fm.result)) return result(gateId, false, `invalid fix result: ${fm.result}`);
+    if (!['success', 'fixed', 'partial', 'failed'].includes(fm.result)) return result(gateId, false, `invalid fix result: ${fm.result}`);
     if (!fm.status) return result(gateId, false, 'Fix report missing status in frontmatter');
     if (!FIX_STATUSES.includes(fm.status)) return result(gateId, false, `invalid fix status: ${fm.status}, expected one of: ${FIX_STATUSES.join(', ')}`);
     if (!text.includes('## 自检结果')) return result(gateId, false, 'Fix report missing self-review section (## 自检结果)');

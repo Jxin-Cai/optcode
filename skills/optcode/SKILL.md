@@ -1,6 +1,7 @@
 ---
 name: optcode
-description: 当用户想要对现有代码进行多维度质量审查和自动修复时触发。即使用户没说"审查"，只要涉及代码质量优化、清理无效代码、消除重复、改善设计、遗留系统治理就应匹配。
+description: 仅当用户明确输入 /optcode 或明确要求运行 optcode 插件时触发。不要因普通代码审查、质量优化、重构、清理无效代码、消除重复、改善设计或遗留系统治理请求而自动触发。
+disable-model-invocation: true
 argument-hint: "[--mode light|deep|auto] [--profile light|deep|auto] [--diff [base_ref]] [--skip dim1,dim2] <目标路径，多个用逗号分隔>"
 ---
 
@@ -63,7 +64,11 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --start <dime
 
 ### action = `cr`
 
-必须先启动 **agent-cr**（opus）并等待 agent 返回。禁止在 agent-cr 返回前运行 `gate-check cr-complete`。
+1. 先执行：
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-started <dimension> <round>
+   ```
+2. 启动 **agent-cr**（opus）并等待 agent 返回。禁止在 agent-cr 返回前运行 `gate-check cr-complete`。
 
 TASK：
 - `work_dir`: `${WORK_DIR}`
@@ -78,7 +83,28 @@ agent-cr 必须写入以下任一报告后才算完成：
 - `${WORK_DIR}/cr/<dimension>-pass.md`（result: pass）
 - `${WORK_DIR}/cr/<dimension>-failed.md`（result: failed）
 
-确认报告存在后：
+agent 返回后只标记报告就绪：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-ready <dimension> <round>
+```
+
+下一轮 `orchestration-status` 返回 `cr_gate` 后，才能执行：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} cr-complete:<dimension>:<round>
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-done <dimension> <round> <result> <issues_count>
+```
+
+### action = `cr_wait`
+
+等待 agent-cr 写入 CR 报告。确认报告存在后执行：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-ready <dimension> <round>
+```
+禁止运行 `cr-complete` gate。
+
+### action = `cr_gate`
+
+CR 报告已落盘，执行：
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} cr-complete:<dimension>:<round>
 node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-done <dimension> <round> <result> <issues_count>
@@ -86,14 +112,39 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --cr-done <di
 
 ### action = `fix`
 
-必须先启动 **agent-fixer**（sonnet）并等待 agent 返回。禁止在 agent-fixer 返回前运行 `gate-check fix-complete`。
+1. 先执行：
+   ```bash
+   node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-started <dimension> <round>
+   ```
+2. 启动 **agent-fixer**（sonnet）并等待 agent 返回。禁止在 agent-fixer 返回前运行 `gate-check fix-complete`。
 
 TASK：
 - `work_dir`: `${WORK_DIR}`
 - `report_path`: `${WORK_DIR}/cr/<dimension>-round-<round>.md`
 - `dimension` / `round`
 
-确认 `${WORK_DIR}/fix/<dimension>-round-<round>-fix.md` 存在后：
+agent 返回后只标记报告就绪：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-ready <dimension> <round>
+```
+
+下一轮 `orchestration-status` 返回 `fix_gate` 后，才能执行：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} fix-complete:<dimension>:<round>
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-done <dimension> <round> <result> <fixed_count> <status>
+```
+
+### action = `fix_wait`
+
+等待 agent-fixer 写入 fix 报告。确认报告存在后执行：
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-ready <dimension> <round>
+```
+禁止运行 `fix-complete` gate。
+
+### action = `fix_gate`
+
+Fix 报告已落盘，执行：
 ```bash
 node ${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${WORK_DIR} fix-complete:<dimension>:<round>
 node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --fix-done <dimension> <round> <result> <fixed_count> <status>

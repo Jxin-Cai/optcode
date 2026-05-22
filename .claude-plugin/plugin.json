@@ -1,7 +1,7 @@
 {
   "name": "optcode",
   "description": "Multi-dimension code review and auto-fix loop for Claude Code",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "author": {
     "name": "jxin",
     "email": "105760730@qq.com"

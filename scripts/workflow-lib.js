@@ -24,7 +24,7 @@ const MAX_ROUNDS = 20;
 
 const STAGNATION_THRESHOLD = 3;
 
-const DIMENSION_RESULTS = ['pending', 'in_progress', 'pass', 'needs_fix', 'failed', 'exceeded', 'skipped'];
+const DIMENSION_RESULTS = ['pending', 'in_progress', 'cr_running', 'cr_ready', 'pass', 'needs_fix', 'fix_running', 'fix_ready', 'failed', 'exceeded', 'skipped'];
 
 const FIX_STATUSES = ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'];
 
@@ -153,18 +153,82 @@ function startDimension(workDir, dimension) {
   return state;
 }
 
-function extractIssueIds(workDir, dimension, round) {
+function findCrReport(workDir, dimension, round) {
   const candidates = [
-    join(workDir, 'cr', `${dimension}-round-${round}.md`),
-    join(workDir, 'cr', `${dimension}-pass.md`),
-    join(workDir, 'cr', `${dimension}-failed.md`)
+    { path: join(workDir, 'cr', `${dimension}-round-${round}.md`), kind: 'round' },
+    { path: join(workDir, 'cr', `${dimension}-pass.md`), kind: 'pass' },
+    { path: join(workDir, 'cr', `${dimension}-failed.md`), kind: 'failed' }
   ];
-  for (const file of candidates) {
-    if (existsSync(file)) {
-      const text = readFileSync(file, 'utf8');
-      const ids = [...text.matchAll(/###\s+(ISSUE-\d+)/g)].map(m => m[1]);
-      return [...new Set(ids)];
-    }
+  return candidates.find(candidate => existsSync(candidate.path)) || null;
+}
+
+function findFixReport(workDir, dimension, round) {
+  const path = join(workDir, 'fix', `${dimension}-round-${round}-fix.md`);
+  return existsSync(path) ? path : null;
+}
+
+function markCrRunning(workDir, dimension, round) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  const dim = state.dimensions[dimension];
+  if (!dim) throw new Error(`unknown dimension: ${dimension}`);
+  dim.status = 'cr_running';
+  dim.round = round;
+  state.current_dimension = dimension;
+  state.current_round = round;
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'cr_started', dimension, round });
+  return state;
+}
+
+function markCrReady(workDir, dimension, round) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  const dim = state.dimensions[dimension];
+  if (!dim) throw new Error(`unknown dimension: ${dimension}`);
+  const report = findCrReport(workDir, dimension, round);
+  if (!report) throw new Error(`CR report missing for ${dimension} round ${round}`);
+  dim.status = 'cr_ready';
+  dim.round = round;
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'cr_ready', dimension, round, report_path: report.path });
+  return state;
+}
+
+function markFixRunning(workDir, dimension, round) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  const dim = state.dimensions[dimension];
+  if (!dim) throw new Error(`unknown dimension: ${dimension}`);
+  dim.status = 'fix_running';
+  dim.round = round;
+  state.current_dimension = dimension;
+  state.current_round = round;
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'fix_started', dimension, round });
+  return state;
+}
+
+function markFixReady(workDir, dimension, round) {
+  const state = readState(workDir);
+  if (!state) throw new Error('state not initialized');
+  const dim = state.dimensions[dimension];
+  if (!dim) throw new Error(`unknown dimension: ${dimension}`);
+  const reportPath = findFixReport(workDir, dimension, round);
+  if (!reportPath) throw new Error(`Fix report missing for ${dimension} round ${round}`);
+  dim.status = 'fix_ready';
+  dim.round = round;
+  writeState(workDir, state);
+  appendAudit(workDir, { type: 'fix_ready', dimension, round, report_path: reportPath });
+  return state;
+}
+
+function extractIssueIds(workDir, dimension, round) {
+  const report = findCrReport(workDir, dimension, round);
+  if (report) {
+    const text = readFileSync(report.path, 'utf8');
+    const ids = [...text.matchAll(/###\s+(ISSUE-\d+)/g)].map(m => m[1]);
+    return [...new Set(ids)];
   }
   return [];
 }
@@ -344,6 +408,15 @@ function getResumePoint(workDir) {
     if (dim.round > MAX_ROUNDS) {
       return { action: 'exceed', dimension: state.current_dimension, reason: `round ${dim.round} exceeds max ${MAX_ROUNDS}` };
     }
+    if (dim.status === 'cr_running') {
+      if (findCrReport(workDir, state.current_dimension, dim.round)) {
+        return { action: 'cr_gate', dimension: state.current_dimension, round: dim.round, reason: 'CR report exists, ready for gate check' };
+      }
+      return { action: 'cr_wait', dimension: state.current_dimension, round: dim.round, reason: 'CR agent is running or report has not been written yet' };
+    }
+    if (dim.status === 'cr_ready') {
+      return { action: 'cr_gate', dimension: state.current_dimension, round: dim.round, reason: 'CR report ready for gate check' };
+    }
     if (dim.status === 'needs_fix') {
       const stagnation = detectStagnation(workDir, state.current_dimension);
       if (stagnation.stagnant) {
@@ -356,6 +429,15 @@ function getResumePoint(workDir) {
         };
       }
       return { action: 'fix', dimension: state.current_dimension, round: dim.round, reason: 'CR found issues, awaiting fix' };
+    }
+    if (dim.status === 'fix_running') {
+      if (findFixReport(workDir, state.current_dimension, dim.round)) {
+        return { action: 'fix_gate', dimension: state.current_dimension, round: dim.round, reason: 'Fix report exists, ready for gate check' };
+      }
+      return { action: 'fix_wait', dimension: state.current_dimension, round: dim.round, reason: 'Fix agent is running or report has not been written yet' };
+    }
+    if (dim.status === 'fix_ready') {
+      return { action: 'fix_gate', dimension: state.current_dimension, round: dim.round, reason: 'Fix report ready for gate check' };
     }
     return { action: 'cr', dimension: state.current_dimension, round: dim.round, reason: 'dimension in progress' };
   }
@@ -419,6 +501,12 @@ module.exports = {
   normalizeMode,
   initState,
   startDimension,
+  findCrReport,
+  findFixReport,
+  markCrRunning,
+  markCrReady,
+  markFixRunning,
+  markFixReady,
   extractIssueIds,
   recordCrResult,
   recordFixResult,

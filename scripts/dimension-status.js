@@ -4,7 +4,11 @@
  *
  * Usage:
  *   node dimension-status.js <work-dir> --start <dimension>
+ *   node dimension-status.js <work-dir> --cr-started <dimension> <round>
+ *   node dimension-status.js <work-dir> --cr-ready <dimension> <round>
  *   node dimension-status.js <work-dir> --cr-done <dimension> <round> <result> [issues_count]
+ *   node dimension-status.js <work-dir> --fix-started <dimension> <round>
+ *   node dimension-status.js <work-dir> --fix-ready <dimension> <round>
  *   node dimension-status.js <work-dir> --fix-done <dimension> <round> <result> [fixed_count] [status]
  *   node dimension-status.js <work-dir> --preflight-done <light|deep> [reason] [signals_json]
  *   node dimension-status.js <work-dir> --deep-plan-done
@@ -15,6 +19,10 @@
 const {
   readState,
   startDimension,
+  markCrRunning,
+  markCrReady,
+  markFixRunning,
+  markFixReady,
   recordCrResult,
   recordFixResult,
   recordPreflightResult,
@@ -59,6 +67,22 @@ function main() {
         print({ started: true, dimension, state: state.dimensions[dimension] });
         break;
       }
+      case '--cr-started': {
+        const [dimension, roundStr] = args;
+        if (!dimension || !roundStr) fail('--cr-started needs dimension, round');
+        const round = Number(roundStr);
+        const state = markCrRunning(workDir, dimension, round);
+        print({ recorded: true, dimension, round, state: state.dimensions[dimension] });
+        break;
+      }
+      case '--cr-ready': {
+        const [dimension, roundStr] = args;
+        if (!dimension || !roundStr) fail('--cr-ready needs dimension, round');
+        const round = Number(roundStr);
+        const state = markCrReady(workDir, dimension, round);
+        print({ recorded: true, dimension, round, state: state.dimensions[dimension] });
+        break;
+      }
       case '--cr-done': {
         const [dimension, roundStr, result, issuesStr] = args;
         if (!dimension || !roundStr || !result) fail('--cr-done needs dimension, round, result');
@@ -66,6 +90,22 @@ function main() {
         const issues = Number(issuesStr || 0);
         const state = recordCrResult(workDir, dimension, round, result, issues);
         print({ recorded: true, dimension, round, result, state: state.dimensions[dimension] });
+        break;
+      }
+      case '--fix-started': {
+        const [dimension, roundStr] = args;
+        if (!dimension || !roundStr) fail('--fix-started needs dimension, round');
+        const round = Number(roundStr);
+        const state = markFixRunning(workDir, dimension, round);
+        print({ recorded: true, dimension, round, state: state.dimensions[dimension] });
+        break;
+      }
+      case '--fix-ready': {
+        const [dimension, roundStr] = args;
+        if (!dimension || !roundStr) fail('--fix-ready needs dimension, round');
+        const round = Number(roundStr);
+        const state = markFixReady(workDir, dimension, round);
+        print({ recorded: true, dimension, round, state: state.dimensions[dimension] });
         break;
       }
       case '--fix-done': {

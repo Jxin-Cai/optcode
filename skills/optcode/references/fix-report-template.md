@@ -1,7 +1,7 @@
 ---
 dimension: <dimension>
 round: <round>
-result: success | partial | failed
+result: success | fixed | partial | failed
 status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
 fixed_count: <N>
 total_count: <N>

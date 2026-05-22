@@ -29,11 +29,19 @@ function buildNextSteps(resume) {
     case 'start_dimension':
       return `node ${P}/scripts/dimension-status.js ${W} --start ${dimension}`;
     case 'cr':
-      return `必须先启动 agent-cr(opus) 并等待完成，TASK={work_dir:${W}, target_paths:<state.target_paths>, dimension:${dimension}, dimension_perspective:${P}/dimensions/${dimension}.md, round:${round}, prev_report:${round > 1 ? `${W}/cr/${dimension}-round-${round - 1}.md` : 'null'}, file_inventory:${W}/file-inventory.md}。确认 agent 已写入 ${W}/cr/${dimension}-round-${round}.md 或 ${W}/cr/${dimension}-pass.md 或 ${W}/cr/${dimension}-failed.md 后，才能执行 node ${P}/scripts/gate-check.js ${W} cr-complete:${dimension}:${round}，再执行 node ${P}/scripts/dimension-status.js ${W} --cr-done ${dimension} ${round} <result> <issues_count>。禁止在 agent-cr 返回前运行 gate-check。`;
+      return `先执行 node ${P}/scripts/dimension-status.js ${W} --cr-started ${dimension} ${round}，然后启动 agent-cr(opus) 并等待完成，TASK={work_dir:${W}, target_paths:<state.target_paths>, dimension:${dimension}, dimension_perspective:${P}/dimensions/${dimension}.md, round:${round}, prev_report:${round > 1 ? `${W}/cr/${dimension}-round-${round - 1}.md` : 'null'}, file_inventory:${W}/file-inventory.md}。agent 返回后执行 node ${P}/scripts/dimension-status.js ${W} --cr-ready ${dimension} ${round}；若报告未落盘，保持 cr_wait，不得运行 gate-check。`;
+    case 'cr_wait':
+      return `尚未检测到 CR 报告。重新启动 agent-cr(opus) 并等待完成，TASK={work_dir:${W}, target_paths:<state.target_paths>, dimension:${dimension}, dimension_perspective:${P}/dimensions/${dimension}.md, round:${round}, prev_report:${round > 1 ? `${W}/cr/${dimension}-round-${round - 1}.md` : 'null'}, file_inventory:${W}/file-inventory.md}。agent 返回并写入 ${W}/cr/${dimension}-round-${round}.md 或 ${W}/cr/${dimension}-pass.md 或 ${W}/cr/${dimension}-failed.md 后，执行 node ${P}/scripts/dimension-status.js ${W} --cr-ready ${dimension} ${round}。禁止运行 cr-complete gate。`;
+    case 'cr_gate':
+      return `CR 报告已落盘。执行 node ${P}/scripts/gate-check.js ${W} cr-complete:${dimension}:${round}，通过后再执行 node ${P}/scripts/dimension-status.js ${W} --cr-done ${dimension} ${round} <result> <issues_count>。`;
     case 'fix':
-      return `必须先启动 agent-fixer(sonnet) 并等待完成，TASK={work_dir:${W}, report_path:${W}/cr/${dimension}-round-${round}.md, dimension:${dimension}, round:${round}}。确认 agent 已写入 ${W}/fix/${dimension}-round-${round}-fix.md 后，才能执行 node ${P}/scripts/gate-check.js ${W} fix-complete:${dimension}:${round}，再执行 node ${P}/scripts/dimension-status.js ${W} --fix-done ${dimension} ${round} <result> <fixed_count> <status>。禁止在 agent-fixer 返回前运行 gate-check。`;
+      return `先执行 node ${P}/scripts/dimension-status.js ${W} --fix-started ${dimension} ${round}，然后启动 agent-fixer(sonnet) 并等待完成，TASK={work_dir:${W}, report_path:${W}/cr/${dimension}-round-${round}.md, dimension:${dimension}, round:${round}}。agent 返回后执行 node ${P}/scripts/dimension-status.js ${W} --fix-ready ${dimension} ${round}；若报告未落盘，保持 fix_wait，不得运行 gate-check。`;
+    case 'fix_wait':
+      return `尚未检测到 Fix 报告。重新启动 agent-fixer(sonnet) 并等待完成，TASK={work_dir:${W}, report_path:${W}/cr/${dimension}-round-${round}.md, dimension:${dimension}, round:${round}}。agent 返回并写入 ${W}/fix/${dimension}-round-${round}-fix.md 后，执行 node ${P}/scripts/dimension-status.js ${W} --fix-ready ${dimension} ${round}。禁止运行 fix-complete gate。`;
+    case 'fix_gate':
+      return `Fix 报告已落盘。执行 node ${P}/scripts/gate-check.js ${W} fix-complete:${dimension}:${round}，通过后再执行 node ${P}/scripts/dimension-status.js ${W} --fix-done ${dimension} ${round} <result> <fixed_count> <status>。`;
     case 'escalate':
-      return `必须先启动 agent-fixer(sonnet) + escalation_context 并等待完成，report_path=${W}/cr/${dimension}-round-${round}.md。收集前几轮 CR/fix 报告摘要注入 escalation_context。确认 agent 已写入 ${W}/fix/${dimension}-round-${round}-fix.md 后，才能执行 node ${P}/scripts/gate-check.js ${W} fix-complete:${dimension}:${round}，再执行 dimension-status --fix-done。禁止在 agent-fixer 返回前运行 gate-check。`;
+      return `先执行 node ${P}/scripts/dimension-status.js ${W} --fix-started ${dimension} ${round}，然后启动 agent-fixer(sonnet) + escalation_context 并等待完成，report_path=${W}/cr/${dimension}-round-${round}.md。agent 返回后执行 node ${P}/scripts/dimension-status.js ${W} --fix-ready ${dimension} ${round}；若报告未落盘，保持 fix_wait，不得运行 gate-check。`;
     case 'exceed':
       return `node ${P}/scripts/dimension-status.js ${W} --exceed ${dimension}`;
     case 'summary':
