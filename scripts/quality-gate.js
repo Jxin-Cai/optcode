@@ -16,8 +16,6 @@ if (!workDir) {
   process.exit(1);
 }
 
-const SCORE_PER_DIMENSION = 100 / DIMENSIONS.length;
-
 const VERDICT_THRESHOLDS = {
   PASS: 80,
   WARN: 50
@@ -34,8 +32,7 @@ function getLastFixStatus(workDir, dimension) {
   return readFrontmatter(text);
 }
 
-function scoreDimension(dimState, workDir, dimension) {
-  const base = SCORE_PER_DIMENSION;
+function scoreDimension(dimState, workDir, dimension, base) {
   switch (dimState.status) {
     case 'pass':
       return base;
@@ -63,9 +60,9 @@ function scoreDimension(dimState, workDir, dimension) {
       return base * 0.3;
     }
     case 'skipped':
-      return base * 0.5;
+      return 0;
     case 'pending':
-      return base * 0.5;
+      return 0;
     default:
       return 0;
   }
@@ -80,10 +77,13 @@ function main() {
 
   const breakdown = {};
   let totalScore = 0;
+  const activeDimensions = DIMENSIONS.filter(dim => state.dimensions[dim].status !== 'skipped');
+  const baseScore = activeDimensions.length > 0 ? 100 / activeDimensions.length : 0;
+  const incomplete = activeDimensions.some(dim => state.dimensions[dim].status === 'pending');
 
   for (const dim of DIMENSIONS) {
     const dimState = state.dimensions[dim];
-    const score = scoreDimension(dimState, workDir, dim);
+    const score = dimState.status === 'skipped' ? 0 : scoreDimension(dimState, workDir, dim, baseScore);
     totalScore += score;
     const fixRate = dimState.issues_found > 0
       ? Math.round((dimState.issues_fixed / dimState.issues_found) * 100)
@@ -101,7 +101,9 @@ function main() {
   totalScore = Math.round(totalScore * 10) / 10;
 
   let verdict;
-  if (totalScore >= VERDICT_THRESHOLDS.PASS) {
+  if (incomplete || activeDimensions.length === 0) {
+    verdict = 'FAIL';
+  } else if (totalScore >= VERDICT_THRESHOLDS.PASS) {
     verdict = 'PASS';
   } else if (totalScore >= VERDICT_THRESHOLDS.WARN) {
     verdict = 'WARN';
@@ -114,6 +116,9 @@ function main() {
     score: totalScore,
     max_score: 100,
     thresholds: VERDICT_THRESHOLDS,
+    active_dimensions: activeDimensions.length,
+    skipped_dimensions: DIMENSIONS.length - activeDimensions.length,
+    incomplete,
     breakdown
   };
 

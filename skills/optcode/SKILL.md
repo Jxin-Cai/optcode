@@ -186,5 +186,5 @@ node ${CLAUDE_PLUGIN_ROOT}/scripts/dimension-status.js ${WORK_DIR} --exceed <dim
 8. fixer 只修改 CR 报告中指出的问题，不引入无关改动
 9. mode=deep 时不得启动 agent-fixer，不得修改业务代码，只能生成 deep-plan.md
 10. mode=auto 必须先完成 preflight，不能直接进入 CR/fix 或 deep_plan
-11. mode=light 的维度顺序、轮次、gate 规则保持现有行为
+11. mode=light 的维度顺序、轮次、gate 规则保持脚本定义，新增维度也必须按序执行
 </HARD-GATE>

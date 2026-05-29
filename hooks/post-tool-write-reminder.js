@@ -4,7 +4,7 @@
  * Reminds the orchestrator to run gate-check after writing CR/fix reports.
  */
 const { readFileSync } = require('node:fs');
-const { join, resolve, relative } = require('node:path');
+const { resolve, relative } = require('node:path');
 
 function readStdin() {
   try {
@@ -46,7 +46,7 @@ function main() {
     const match = subPath.match(/cr\/([^/]+)-round-(\d+)\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`CR report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${join(cwd, parts[0], parts[1])} cr-complete:${dimension}:${round}`);
+      injectContext(`CR report written: ${subPath}. Record readiness with dimension-status --cr-ready ${dimension} ${round}, then rerun orchestration-status before any gate-check.`);
       return;
     }
     if (subPath.includes('-pass.md') || subPath.includes('-failed.md')) {
@@ -59,13 +59,13 @@ function main() {
     const match = subPath.match(/fix\/([^/]+)-round-(\d+)-fix\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`Fix report written: ${subPath}. Run gate-check: node \${CLAUDE_PLUGIN_ROOT}/scripts/gate-check.js ${join(cwd, parts[0], parts[1])} fix-complete:${dimension}:${round}`);
+      injectContext(`Fix report written: ${subPath}. Record readiness with dimension-status --fix-ready ${dimension} ${round}, then rerun orchestration-status before any gate-check.`);
       return;
     }
   }
 
   if (subPath === 'summary.md') {
-    injectContext('Summary written. Run gate-check: summary-exists. Workflow is complete.');
+    injectContext('Summary written. Rerun orchestration-status and follow the returned summary gate step.');
   }
 }
 

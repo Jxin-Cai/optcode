@@ -4,35 +4,38 @@
 
 - **执行时间**: <timestamp>
 - **目标路径**: <target_paths>
-- **执行维度**: dead-code, duplication, concurrency, design, style, maintainability, legacy-safety
+- **执行维度**: dead-code, duplication, concurrency, design, style, maintainability, legacy-safety, ai-sdd-smells
 
 ## 质量门禁
 
 - **判定**: PASS / WARN / FAIL
 - **评分**: <score> / 100
-- **通过阈值**: PASS ≥ 80, WARN ≥ 50, FAIL < 50
+- **通过阈值**: PASS ≥ 80, WARN ≥ 50, FAIL < 50；存在 pending 或无有效审查维度时直接 FAIL
+- **跳过维度**: skipped 不计入分母，必须单独列出风险
 
 | 维度 | 得分 | 状态 |
 |------|------|------|
-| 无效代码残料 | <score> | pass / failed / exceeded |
-| 重复代码 | <score> | pass / failed / exceeded |
-| 并发安全 | <score> | pass / failed / exceeded |
-| 设计原则 | <score> | pass / failed / exceeded |
-| 代码风格 | <score> | pass / failed / exceeded |
-| 可维护性 | <score> | pass / failed / exceeded |
-| 遗留安全 | <score> | pass / failed / exceeded |
+| 无效代码残料 | <score> | pass / failed / exceeded / skipped / pending |
+| 重复代码 | <score> | pass / failed / exceeded / skipped / pending |
+| 并发安全 | <score> | pass / failed / exceeded / skipped / pending |
+| 设计原则 | <score> | pass / failed / exceeded / skipped / pending |
+| 代码风格 | <score> | pass / failed / exceeded / skipped / pending |
+| 可维护性 | <score> | pass / failed / exceeded / skipped / pending |
+| 遗留安全 | <score> | pass / failed / exceeded / skipped / pending |
+| AI/SDD 坏味道 | <score> | pass / failed / exceeded / skipped / pending |
 
 ## 各维度结果总览
 
 | 维度 | 最终状态 | 执行轮次 | 发现问题数 | 修复问题数 |
 |------|---------|---------|-----------|-----------|
-| 无效代码残料 | pass / needs_fix / failed / skipped | N | N | N |
-| 重复代码 | pass / needs_fix / failed / skipped | N | N | N |
-| 并发安全 | pass / needs_fix / failed / skipped | N | N | N |
-| 设计原则 | pass / needs_fix / failed / skipped | N | N | N |
-| 代码风格 | pass / needs_fix / failed / skipped | N | N | N |
-| 可维护性 | pass / needs_fix / failed / skipped | N | N | N |
-| 遗留安全 | pass / needs_fix / failed / skipped | N | N | N |
+| 无效代码残料 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 重复代码 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 并发安全 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 设计原则 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 代码风格 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 可维护性 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 遗留安全 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| AI/SDD 坏味道 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 
 ## 变更统计
 

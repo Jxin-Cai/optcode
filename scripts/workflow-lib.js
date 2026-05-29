@@ -13,7 +13,8 @@ const DIMENSIONS = [
   'design',
   'style',
   'maintainability',
-  'legacy-safety'
+  'legacy-safety',
+  'ai-sdd-smells'
 ];
 
 const MODES = ['light', 'deep', 'auto'];

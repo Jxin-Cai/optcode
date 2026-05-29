@@ -58,6 +58,36 @@ function validateCrIssues(text, expectedCount) {
   return '';
 }
 
+function sectionText(text, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = text.match(new RegExp(`^##\\s+${escaped}\\s*$([\\s\\S]*?)(?=^##\\s+|$(?![\\s\\S]))`, 'm'));
+  return match ? match[1].trim() : '';
+}
+
+function hasMeaningfulSection(text, heading, minLength = 10) {
+  return sectionText(text, heading).length >= minLength;
+}
+
+function validateCrReport(text) {
+  const fm = readFrontmatter(text);
+  if (!fm.result) return 'CR report missing result in frontmatter';
+  if (!['pass', 'needs_fix', 'failed'].includes(fm.result)) return `invalid result: ${fm.result}`;
+  if (fm.result === 'pass') {
+    if (text.includes('ISSUE-')) return 'pass report must not contain ISSUE entries';
+    if (!hasMeaningfulSection(text, '审查结论', 10)) return 'pass report missing meaningful review conclusion';
+  }
+  if (fm.result === 'failed') {
+    if (!hasMeaningfulSection(text, '失败原因', 10) && !hasMeaningfulSection(text, '审查结论', 20)) {
+      return 'failed report missing failure reason';
+    }
+  }
+  if (fm.result === 'needs_fix') {
+    if (!text.includes('ISSUE-')) return 'needs_fix report must contain at least one ISSUE';
+    return validateCrIssues(text, fm.issues_count);
+  }
+  return '';
+}
+
 function checkGate(workDir, gateId) {
   if (!workDir || !existsSync(workDir)) {
     return result(gateId, false, 'work directory does not exist');
@@ -84,9 +114,11 @@ function checkGate(workDir, gateId) {
     if (!existsSync(planPath)) return result(gateId, false, 'deep-plan.md missing');
     const text = readFileSync(planPath, 'utf8');
     if (text.length < 300) return result(gateId, false, 'deep-plan.md has insufficient content');
-    const requiredSections = ['## 结构诊断', '## 风险分层', '## 分阶段实施计划', '## 不在本阶段执行的改动'];
+    const requiredSections = ['## 结构诊断', '## 风险分层', '## 分阶段实施计划', '## 验证策略', '## 不在本阶段执行的改动'];
     const missing = requiredSections.filter(section => !text.includes(section));
     if (missing.length > 0) return result(gateId, false, `deep-plan.md missing sections: ${missing.join(', ')}`);
+    if (!/###\s+Phase\s+1/i.test(text)) return result(gateId, false, 'deep-plan.md missing Phase 1');
+    if (!hasMeaningfulSection(text, '验证策略', 50)) return result(gateId, false, 'deep-plan.md missing actionable verification strategy');
     return result(gateId, true);
   }
 
@@ -95,30 +127,16 @@ function checkGate(workDir, gateId) {
   if (crMatch) {
     const [, dimension, roundStr] = crMatch;
     const round = Number(roundStr);
-    // Check for pass file first
-    const passFile = join(workDir, 'cr', `${dimension}-pass.md`);
-    if (existsSync(passFile)) {
-      const fm = readFrontmatter(readFileSync(passFile, 'utf8'));
-      if (fm.result === 'pass') return result(gateId, true);
-    }
-    // Check for failed file
-    const failedFile = join(workDir, 'cr', `${dimension}-failed.md`);
-    if (existsSync(failedFile)) {
-      const fm = readFrontmatter(readFileSync(failedFile, 'utf8'));
-      if (fm.result === 'failed') return result(gateId, true);
-    }
-    // Check for round file
-    const roundFile = join(workDir, 'cr', `${dimension}-round-${round}.md`);
-    if (!existsSync(roundFile)) return result(gateId, false, `CR report missing: ${dimension}-round-${round}.md`);
-    const text = readFileSync(roundFile, 'utf8');
-    const fm = readFrontmatter(text);
-    if (!fm.result) return result(gateId, false, 'CR report missing result in frontmatter');
-    if (!['pass', 'needs_fix', 'failed'].includes(fm.result)) return result(gateId, false, `invalid result: ${fm.result}`);
-    if (fm.result === 'needs_fix' && !text.includes('ISSUE-')) return result(gateId, false, 'needs_fix report must contain at least one ISSUE');
-    if (fm.result === 'needs_fix') {
-      const issueError = validateCrIssues(text, fm.issues_count);
-      if (issueError) return result(gateId, false, issueError);
-    }
+    const candidates = [
+      join(workDir, 'cr', `${dimension}-pass.md`),
+      join(workDir, 'cr', `${dimension}-failed.md`),
+      join(workDir, 'cr', `${dimension}-round-${round}.md`)
+    ];
+    const reportPath = candidates.find(existsSync);
+    if (!reportPath) return result(gateId, false, `CR report missing: ${dimension}-round-${round}.md`);
+    const text = readFileSync(reportPath, 'utf8');
+    const error = validateCrReport(text);
+    if (error) return result(gateId, false, error);
     return result(gateId, true);
   }
 
@@ -138,10 +156,32 @@ function checkGate(workDir, gateId) {
     if (!text.includes('## 自检结果')) return result(gateId, false, 'Fix report missing self-review section (## 自检结果)');
     if (!text.includes('## Diff 检查')) return result(gateId, false, 'Fix report missing diff check section (## Diff 检查)');
     if (!text.includes('## 行为保真检查')) return result(gateId, false, 'Fix report missing behavior preservation section (## 行为保真检查)');
+    if (fm.status === 'DONE_WITH_CONCERNS' && !hasMeaningfulSection(text, 'Concerns', 10)) {
+      return result(gateId, false, 'DONE_WITH_CONCERNS fix report must include Concerns');
+    }
+    if (['NEEDS_CONTEXT', 'BLOCKED'].includes(fm.status) && !hasMeaningfulSection(text, '阻塞原因', 10)) {
+      return result(gateId, false, `${fm.status} fix report must include 阻塞原因`);
+    }
+    if (['success', 'fixed'].includes(fm.result) && !['DONE', 'DONE_WITH_CONCERNS'].includes(fm.status)) {
+      return result(gateId, false, `${fm.result} result is incompatible with ${fm.status} status`);
+    }
+    if (fm.result === 'failed' && !['NEEDS_CONTEXT', 'BLOCKED'].includes(fm.status)) {
+      return result(gateId, false, 'failed result must use NEEDS_CONTEXT or BLOCKED status');
+    }
     if (fm.total_count !== undefined && fm.fixed_count !== undefined) {
       const fixed = Number(fm.fixed_count);
       const total = Number(fm.total_count);
+      if (!Number.isFinite(fixed) || !Number.isFinite(total)) return result(gateId, false, 'fixed_count and total_count must be numeric');
       if (fixed > total) return result(gateId, false, `fixed_count (${fixed}) exceeds total_count (${total})`);
+      if (['success', 'fixed'].includes(fm.result) && fixed !== total) {
+        return result(gateId, false, `${fm.result} result requires fixed_count to equal total_count`);
+      }
+      if (fm.result === 'partial' && fixed >= total && total > 0) {
+        return result(gateId, false, 'partial result requires fixed_count to be less than total_count');
+      }
+      if (fm.result === 'failed' && fixed !== 0) {
+        return result(gateId, false, 'failed result requires fixed_count to be 0');
+      }
       const rows = [...text.matchAll(/\|\s*ISSUE-\d+\s*\|/g)].length;
       if (rows > 0 && rows !== total) {
         return result(gateId, false, `fix report table has ${rows} ISSUE rows but total_count is ${total}`);
@@ -166,6 +206,8 @@ function main() {
   if (!checked.pass) process.exit(1);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
 
 module.exports = { checkGate };

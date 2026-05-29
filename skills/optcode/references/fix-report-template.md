@@ -9,6 +9,8 @@ total_count: <N>
 
 # Fix Report: <dimension> — Round <round>
 
+`fixed`/`success` 必须满足 fixed_count = total_count；`partial` 必须满足 fixed_count < total_count；`failed` 必须满足 fixed_count = 0 且 status 为 NEEDS_CONTEXT 或 BLOCKED。
+
 ## 修复结果
 
 | Issue ID | 问题 | 严重度 | 修复风险 | 修复状态 | 说明 |
@@ -38,10 +40,11 @@ total_count: <N>
 
 ## Concerns
 
-> 仅当 status = DONE_WITH_CONCERNS 时填写。列出具体的风险点和建议的人工确认项。
+> 仅当 status = DONE_WITH_CONCERNS 时填写，且不得留空。列出具体的风险点和建议的人工确认项。
 
 ## 阻塞原因
 
 > 仅当 status = NEEDS_CONTEXT 或 BLOCKED 时填写。
+> status = NEEDS_CONTEXT 或 BLOCKED 时必须填写，且不得留空。
 > NEEDS_CONTEXT: 说明缺少什么上下文，需要什么信息才能继续。
 > BLOCKED: 说明具体的技术阻塞原因。

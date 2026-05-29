@@ -8,7 +8,9 @@
  *   node file-inventory.js --diff [base_ref]
  * Output: markdown table with line counts, written to stdout.
  */
-const { execSync } = require('node:child_process');
+const { existsSync, lstatSync, readdirSync, readFileSync } = require('node:fs');
+const { join, basename } = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const SOURCE_EXTENSIONS = [
   'go', 'java', 'py', 'js', 'ts', 'tsx', 'jsx', 'rs',
@@ -25,15 +27,69 @@ const EXCLUDE_DIRS = [
 
 const args = process.argv.slice(2);
 const isDiffMode = args[0] === '--diff';
+const extSet = new Set(SOURCE_EXTENSIONS);
+const excludeSet = new Set(EXCLUDE_DIRS);
+
+function sourceFile(file) {
+  const ext = file.split('.').pop();
+  if (!extSet.has(ext)) return false;
+  const parts = file.split(/[\\/]/);
+  return !parts.some(part => excludeSet.has(part));
+}
+
+function safeGitDiff(args) {
+  const result = spawnSync('git', args, { encoding: 'utf8' });
+  if (result.error || result.status !== 0) return '';
+  return result.stdout.trim();
+}
+
+function validateBaseRef(baseRef) {
+  if (!baseRef || baseRef.startsWith('-') || /[\0\n\r]/.test(baseRef)) {
+    process.stderr.write('invalid base ref\n');
+    process.exit(1);
+  }
+  return baseRef;
+}
+
+function scanPath(target, files) {
+  if (!existsSync(target)) return;
+  let stat;
+  try {
+    stat = lstatSync(target);
+  } catch {
+    return;
+  }
+  if (stat.isSymbolicLink()) return;
+  if (stat.isFile()) {
+    if (sourceFile(target)) files.add(target);
+    return;
+  }
+  if (!stat.isDirectory()) return;
+  if (excludeSet.has(basename(target))) return;
+
+  for (const entry of readdirSync(target)) {
+    scanPath(join(target, entry), files);
+  }
+}
+
+function countLines(file) {
+  try {
+    const text = readFileSync(file, 'utf8');
+    if (text.length === 0) return 0;
+    return text.endsWith('\n') ? text.split('\n').length - 1 : text.split('\n').length;
+  } catch {
+    return 0;
+  }
+}
 
 let files;
 
 if (isDiffMode) {
-  const baseRef = args[1] || 'HEAD';
-  const staged = execSync('git diff --cached --name-only --diff-filter=d 2>/dev/null || true', { encoding: 'utf8' }).trim();
-  const unstaged = execSync('git diff --name-only --diff-filter=d 2>/dev/null || true', { encoding: 'utf8' }).trim();
+  const baseRef = validateBaseRef(args[1] || 'HEAD');
+  const staged = safeGitDiff(['diff', '--cached', '--name-only', '--diff-filter=d']);
+  const unstaged = safeGitDiff(['diff', '--name-only', '--diff-filter=d']);
   const vsBase = baseRef !== 'HEAD'
-    ? execSync(`git diff --name-only --diff-filter=d ${baseRef} 2>/dev/null || true`, { encoding: 'utf8' }).trim()
+    ? safeGitDiff(['diff', '--name-only', '--diff-filter=d', baseRef])
     : '';
 
   const allFiles = new Set([
@@ -42,38 +98,24 @@ if (isDiffMode) {
     ...vsBase.split('\n').filter(Boolean)
   ]);
 
-  const extSet = new Set(SOURCE_EXTENSIONS);
-  const excludeSet = new Set(EXCLUDE_DIRS);
-  files = [...allFiles].filter(f => {
-    const ext = f.split('.').pop();
-    if (!extSet.has(ext)) return false;
-    const parts = f.split('/');
-    return !parts.some(p => excludeSet.has(p));
-  });
+  files = [...allFiles].filter(sourceFile);
 
   if (files.length === 0) {
     console.log('# File Inventory (diff mode)\n\nNo changed source files found.');
     process.exit(0);
   }
 } else {
-  const targets = args;
+  const targets = args.flatMap(arg => arg.split(',').map(s => s.trim()).filter(Boolean));
   if (targets.length === 0) {
     process.stderr.write('用法: node file-inventory.js <target_path1> [target_path2 ...]\n      node file-inventory.js --diff [base_ref]\n');
     process.exit(1);
   }
 
-  const extPattern = SOURCE_EXTENSIONS.map(e => `-name "*.${e}"`).join(' -o ');
-  const excludePattern = EXCLUDE_DIRS.map(d => `! -path "*/${d}/*"`).join(' ');
-  const findCmd = `find ${targets.join(' ')} -type f \\( ${extPattern} \\) ${excludePattern} 2>/dev/null`;
-
-  let output;
-  try {
-    output = execSync(findCmd, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
-  } catch (err) {
-    if (err.stdout) output = err.stdout;
-    else { process.stderr.write('find command failed\n'); process.exit(1); }
+  const fileSet = new Set();
+  for (const target of targets) {
+    scanPath(target, fileSet);
   }
-  files = output.trim().split('\n').filter(Boolean);
+  files = [...fileSet];
 
   if (files.length === 0) {
     console.log('# File Inventory\n\nNo source files found in the specified paths.');
@@ -85,14 +127,9 @@ const entries = [];
 let totalLines = 0;
 
 for (const file of files) {
-  try {
-    const wc = execSync(`wc -l < "${file}"`, { encoding: 'utf8' }).trim();
-    const lines = parseInt(wc, 10) || 0;
-    entries.push({ lines, file });
-    totalLines += lines;
-  } catch {
-    entries.push({ lines: 0, file });
-  }
+  const lines = countLines(file);
+  entries.push({ lines, file });
+  totalLines += lines;
 }
 
 entries.sort((a, b) => b.lines - a.lines);

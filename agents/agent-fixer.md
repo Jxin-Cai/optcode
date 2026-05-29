@@ -62,13 +62,13 @@ git diff
 
 ### 4. 确定状态
 
-frontmatter `result` 使用：`success` 或 `fixed` 表示全部修复，`partial` 表示部分处理，`failed` 表示修复失败。
+frontmatter `result` 使用：`fixed` 表示全部修复，`partial` 表示部分处理，`failed` 表示修复失败（兼容旧值 `success`，但新报告优先用 `fixed`）。
 frontmatter `status` 使用：
 
-- `DONE` — 全部修复，自检通过
-- `DONE_WITH_CONCERNS` — 修复完成但存在风险点（不确定时优先选此项）
-- `NEEDS_CONTEXT` — 缺少上下文无法安全修复
-- `BLOCKED` — 技术阻塞
+- `DONE` — 全部修复，自检通过，且 fixed_count = total_count
+- `DONE_WITH_CONCERNS` — 修复完成但存在风险点（不确定时优先选此项），必须填写 Concerns
+- `NEEDS_CONTEXT` — 缺少上下文无法安全修复，必须填写阻塞原因
+- `BLOCKED` — 技术阻塞，必须填写阻塞原因
 
 ### 5. 写入报告
 

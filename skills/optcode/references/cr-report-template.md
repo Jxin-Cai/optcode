@@ -18,7 +18,11 @@ issues_count: <N>
 
 <pass / needs_fix / failed>
 
-结论摘要（1-2 句话说明整体情况）。如果没有 confidence ≥ 80 的问题，result 必须为 pass。
+结论摘要（1-2 句话说明整体情况）。如果没有 confidence ≥ 80 的问题，result 必须为 pass；pass 报告不得包含 ISSUE 条目。
+
+## 失败原因
+
+> 仅当 result = failed 时填写。说明失败原因、缺少的上下文或工具限制。
 
 ## 问题列表
 

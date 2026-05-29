@@ -4,7 +4,7 @@
  *
  * Usage: node init-state.js <work-dir> <base-commit> <target_path1> [target_path2 ...] [--mode light|deep|auto] [--profile light|deep|auto] [--diff [base_ref]] [--skip dim1,dim2]
  */
-const { initState, MODES, DEFAULT_MODE } = require('./workflow-lib.js');
+const { initState, MODES, DEFAULT_MODE, DIMENSIONS } = require('./workflow-lib.js');
 
 function fail(msg) {
   process.stderr.write(`${msg}\n`);
@@ -27,6 +27,8 @@ function parseArgs(rawArgs) {
       const skipArg = rawArgs[++i];
       if (!skipArg) fail('--skip needs comma-separated dimensions');
       options.skipDimensions = skipArg.split(',').map(s => s.trim()).filter(Boolean);
+      const unknown = options.skipDimensions.filter(dim => !DIMENSIONS.includes(dim));
+      if (unknown.length > 0) fail(`unknown skip dimension(s): ${unknown.join(', ')}`);
     } else if (arg === '--mode') {
       const mode = rawArgs[++i];
       if (!mode) fail('--mode needs one of: light, deep, auto');
@@ -45,7 +47,7 @@ function parseArgs(rawArgs) {
         options.diff_base_ref = 'HEAD';
       }
     } else {
-      positional.push(arg);
+      positional.push(...arg.split(',').map(s => s.trim()).filter(Boolean));
     }
   }
 
@@ -69,7 +71,9 @@ if (!workDir || !baseCommit || targets.length === 0) {
   process.exit(1);
 }
 
-const state = initState(workDir, targets, baseCommit, options.skipDimensions, {
+const targetPaths = targets.flatMap(target => target.split(',').map(s => s.trim()).filter(Boolean));
+
+const state = initState(workDir, targetPaths, baseCommit, options.skipDimensions, {
   mode: options.requestedMode,
   requested_mode: options.requestedMode,
   diff: options.diff,
