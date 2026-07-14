@@ -54,10 +54,7 @@ function main() {
       console.log(`  - ${w.timestamp}: ${done}/${dims.length} dimensions done | current=${current} round=${round}`);
     }
     console.log('');
-    console.log('OPTCODE RULES:');
-    console.log('  - orchestration-status.js = 唯一恢复点，每轮必调，不凭记忆跳步');
-    console.log('  - CR agent 不改代码，gate-check 必须通过才能继续');
-    console.log('  - 产物落盘，不依赖上下文记忆');
+    console.log('Resume with /optcode to continue the active workflow.');
   }
 }
 

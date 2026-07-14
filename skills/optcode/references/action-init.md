@@ -2,7 +2,6 @@
 
 1. 解析 `$ARGUMENTS`：
    - `--mode light|deep|auto`：优化模式，默认 `light`
-   - `--profile light|deep|auto`：等价于 `--mode`
    - `--diff [base_ref]`：增量审查模式，仅审查 git 变更文件；未指定 base ref 时默认 `HEAD`
    - `--skip dim1,dim2`：跳过指定轻量维度
    - 其余参数解析为目标路径列表（逗号分隔），无参数且非 diff 时默认 `.`

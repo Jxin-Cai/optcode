@@ -76,9 +76,6 @@ claude plugin marketplace remove optcode  # 移除市场
 # 自动预检后选择 light 或 deep plan-only
 /optcode --mode auto src/
 
-# 也可以使用 --profile 作为 --mode 的别名
-/optcode --profile auto src/
-
 # 仅审查 git 变更文件
 /optcode --diff
 /optcode --diff main
