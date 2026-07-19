@@ -1,101 +1,87 @@
 ---
-description: "Multi-dimension code review with parallel CR, adversarial verification, and regression-safe auto-fix. Use this skill when the user invokes /optcode or asks for structured multi-dimension code review."
-argument-hint: "[target paths] [--mode light|deep] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
+description: "Use this skill when the user invokes /optcode or asks for multi-dimension code review, AI-generated code governance, or regression-safe automatic fixes."
+argument-hint: "[target paths] [--mode light|deep|auto] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
 allowed-tools: ["Bash", "Read", "Write", "Agent", "Workflow", "Grep", "Glob"]
 ---
 
-# optcode — Dynamic Workflow Code Review
+# optcode
 
-Run multi-dimension code review using Claude Code's Dynamic Workflow for deterministic parallel orchestration.
+Use Claude Code's native Dynamic Workflow as the only orchestration layer. Do not manually dispatch review or fixer agents from this skill and do not recreate a `next_steps` state machine.
 
-## Invocation
+## 1. Parse and validate input
 
-Parse user arguments:
-- **target paths**: files or directories to review (default: git tracked files in cwd)
-- **--mode**: `light` (default) or `deep` (adds deep-plan phase)
-- **--dims**: comma-separated dimension list to force-activate
-- **--skip**: comma-separated dimensions to skip
+Parse target paths, `--mode` (`light`, `deep`, or `auto`), `--dims`, and `--skip`. Reject paths outside the current project. When no paths are provided, use the repository's tracked files.
 
-## Execution Steps
+## 2. Initialize a run
 
-### 1. Initialize workspace
+Choose a unique work directory and capture the immutable starting revision:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/init-state.js <target-paths...> [--mode light|deep] [--skip dim1,dim2]
+work_dir=".optcode/$(date +%Y%m%d-%H%M%S)"
+base_commit="$(git rev-parse HEAD)"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/init-state.js" "$work_dir" "$base_commit" <target-paths...> [--mode light|deep|auto] [--skip dim1,dim2]
+node "${CLAUDE_PLUGIN_ROOT}/scripts/file-inventory.js" <target-paths...> > "$work_dir/file-inventory.md"
 ```
 
-Capture the printed `work_dir` path (e.g. `.optcode/20250719-143022/`).
+Stop if either command fails or the inventory is empty. Do not start agents with an unrecorded baseline.
 
-### 2. Build file inventory
+## 3. Run the Dynamic Workflow
 
-```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/file-inventory.js <work_dir>
-```
+Call the native `Workflow` tool. Do not execute the workflow file with Node.
 
-### 3. Launch Dynamic Workflow
-
-Call the Workflow tool:
-
-```
+```text
 Workflow({
   scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/optcode-review.js",
   args: {
     pluginRoot: "${CLAUDE_PLUGIN_ROOT}",
-    workDir: "<work_dir from step 1>",
-    targetPaths: [<parsed target paths>],
-    dimensions: [<--dims values or empty for auto-detect>],
-    mode: "<light or deep>"
+    workDir: "<work_dir>",
+    baseCommit: "<base_commit>",
+    targetPaths: [<target paths>],
+    dimensions: [<--dims values or empty>],
+    mode: "<light|deep|auto>"
   }
 })
 ```
 
-The workflow handles all orchestration:
-- **Activate**: determines which dimensions apply to the target code
-- **CR**: fans out parallel read-only review agents per dimension
-- **Verify**: adversarial verification of each finding (skipped if budget is low)
-- **Fix**: serial fixes with regression checks after each
+The Workflow performs:
 
-### 4. Present results
+- activation and optional preflight;
+- parallel, read-only CR with `agent-cr`;
+- stable finding normalization and adversarial verification with `agent-verifier`;
+- a risk gate before any write;
+- serial fixes with `agent-fixer` only in light mode;
+- test/typecheck/build evidence, regression review, and same-dimension re-review after each fix;
+- atomic state and audit updates at phase barriers.
 
-After the workflow completes, summarize:
-- Dimensions reviewed and their results
-- Issues found, verified, and fixed
-- Any regressions detected
-- Overall quality assessment
+Parallel agents must write only unique reports. They must not write `state.json`, `audit-log.jsonl`, or business code. Fixers are never dispatched through `parallel()`.
 
-If the workflow returns `blocked_by_regression`, inform the user which dimension's fix caused the regression and suggest next steps.
+## 4. Interpret the result
 
-## Resumption
+Present the structured Workflow result and the artifact paths. Treat these as blocking outcomes:
 
-If a previous run was interrupted, check for existing state:
+- `deep_plan`: show the plan; do not modify business code.
+- `verification_required`: report findings for review; do not auto-fix under budget pressure.
+- `blocked_by_gate` or `blocked_by_regression`: show the failing evidence and stop.
+- `completed`: include changed files, tests, residual findings, and quality-gate result.
+
+## 5. Resume safely
+
+For an interrupted run, inspect the persisted state:
 
 ```bash
-node ${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js <work_dir>
+node "${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js" <work_dir>
 ```
 
-This reports current phase and progress. Re-run the Workflow with the same `workDir` — agents will detect existing reports and skip completed work.
+Resume with the same `workDir` and `baseCommit`. The Workflow must verify existing artifact hashes and skip only completed barriers. Never infer completion from a text report alone.
 
-## CLI Utilities
+## Utilities
 
-These scripts are used by the workflow agents internally, but available for debugging:
+- `workflow-lib.js`: atomic state, audit log, report lookup, resume state
+- `init-state.js`: run manifest and initial state
+- `file-inventory.js`: deterministic target inventory
+- `gate-check.js`: report postconditions
+- `dimension-status.js`: atomic dimension transitions
+- `quality-gate.js`: aggregate quality result
+- `cr-activation-check.js`: activation hints only; it cannot override explicit user dimensions
 
-| Script | Purpose |
-|--------|---------|
-| `gate-check.js <work_dir> <artifact>` | Validate CR/fix report postconditions |
-| `dimension-status.js <work_dir> <action> [args]` | Transition dimension state |
-| `quality-gate.js <work_dir>` | Compute overall quality score |
-| `cr-activation-check.js <work_dir>` | Determine which dimensions to activate |
-| `verification-check.js <work_dir>` | Extract findings for verification |
-| `apply-verification.js <work_dir>` | Apply verification results to CR reports |
-
-## Dimensions
-
-8 review perspectives in `${CLAUDE_PLUGIN_ROOT}/dimensions/`:
-dead-code, duplication, concurrency, design, style, maintainability, legacy-safety, ai-sdd-smells
-
-## References
-
-- `references/cr-report-template.md` — CR report format
-- `references/fix-report-template.md` — Fix report format
-- `references/hard-gate.md` — Gate check rules
-- `references/dynamic-workflow.md` — Workflow architecture details
+See `references/dynamic-workflow.md`, `references/cr-report-template.md`, `references/fix-report-template.md`, and `references/hard-gate.md` for artifact contracts.

@@ -146,6 +146,8 @@ function initState(workDir, targetPaths, baseCommit, skipDimensions = [], option
   }
   ensureDir(join(workDir, 'cr'));
   ensureDir(join(workDir, 'fix'));
+  ensureDir(join(workDir, 'verification'));
+  ensureDir(join(workDir, 'regression'));
   writeState(workDir, state);
   appendAudit(workDir, {
     type: 'init',

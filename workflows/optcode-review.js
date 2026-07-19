@@ -1,17 +1,18 @@
 export const meta = {
   name: 'optcode-review',
-  description: 'Multi-dimension code review with adversarial verification and regression-safe fixes',
-  whenToUse: 'When /optcode is invoked to review code across multiple quality dimensions in parallel',
+  description: 'Govern AI-generated code with parallel review, adversarial verification, and regression-safe fixes.',
+  whenToUse: 'When /optcode is invoked for a multi-dimension code review or AI code quality governance run.',
   phases: [
-    { title: 'Activate', detail: 'determine which dimensions apply to the target code' },
-    { title: 'CR', detail: 'parallel read-only code review per dimension' },
-    { title: 'Verify', detail: 'adversarial verification of each finding' },
-    { title: 'Fix', detail: 'serial fixes with regression checks' },
+    { title: 'Activate', detail: 'resolve applicable review dimensions' },
+    { title: 'CR', detail: 'parallel read-only coverage review' },
+    { title: 'Verify', detail: 'parallel adversarial finding verification' },
+    { title: 'Fix', detail: 'serial bounded fixes with evidence and re-review' },
   ],
 }
 
 const FINDING_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     dimension: { type: 'string' },
     result: { type: 'string', enum: ['pass', 'needs_fix', 'failed'] },
@@ -23,147 +24,154 @@ const FINDING_SCHEMA = {
 
 const VERDICT_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
+    dimension: { type: 'string' },
     issueId: { type: 'string' },
     verdict: { type: 'string', enum: ['TRUE_POSITIVE', 'FALSE_POSITIVE', 'UNCERTAIN'] },
     confidence: { type: 'integer' },
-    reasoning: { type: 'string' },
   },
-  required: ['issueId', 'verdict', 'confidence'],
+  required: ['dimension', 'issueId', 'verdict', 'confidence'],
 }
 
 const REGRESSION_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
-    verdict: { type: 'string', enum: ['NO_REGRESSION', 'REGRESSION_FOUND', 'UNCERTAIN'] },
+    verdict: { type: 'string', enum: ['CLEAN', 'REGRESSION_FOUND', 'UNCERTAIN'] },
     issues: { type: 'array', items: { type: 'string' } },
   },
   required: ['verdict'],
 }
 
-// --- Args ---
-const normalizedArgs = typeof args === 'string' ? (() => { try { return JSON.parse(args) } catch { return args } })() : args
-const { pluginRoot, workDir, targetPaths = [], dimensions = [], mode = 'light' } = normalizedArgs ?? {}
-if (!pluginRoot || !workDir) throw new Error('args.pluginRoot and args.workDir are required')
+const normalizedArgs = typeof args === 'string'
+  ? (() => { try { return JSON.parse(args) } catch { throw new Error('args must be a JSON object') } })()
+  : args
+const {
+  pluginRoot,
+  workDir,
+  baseCommit,
+  targetPaths = [],
+  dimensions = [],
+  mode = 'light',
+} = normalizedArgs ?? {}
 
-// --- Phase: Activate ---
-log(`Starting optcode review: ${dimensions.length || 'auto'} dimensions, mode=${mode}`)
-
-const activeDims = dimensions.length > 0
-  ? dimensions
-  : await agent(
-      `Run: node ${pluginRoot}/scripts/cr-activation-check.js ${workDir}
-       Parse the JSON output and return the "activated" array as a plain JSON array of dimension name strings.`,
-      { label: 'activate', phase: 'Activate', schema: { type: 'array', items: { type: 'string' } } }
-    )
-
-if (!activeDims || activeDims.length === 0) {
-  log('No dimensions activated — nothing to review')
-  return { status: 'skipped', reason: 'no dimensions activated' }
+if (!pluginRoot || !workDir || !baseCommit) {
+  throw new Error('args.pluginRoot, args.workDir, and args.baseCommit are required')
 }
-log(`Activated ${activeDims.length} dimensions: ${activeDims.join(', ')}`)
+if (!['light', 'deep', 'auto'].includes(mode)) throw new Error(`unsupported mode: ${mode}`)
 
-// --- Phase: CR (parallel, read-only) ---
-const crResults = await parallel(activeDims.map(dim => () => agent(
-  `You are reviewing dimension "${dim}".
-Read the dimension perspective: ${pluginRoot}/dimensions/${dim}.md
-Read the file inventory: ${workDir}/file-inventory.md
-Read each target file listed in the inventory.
+log(`optcode: starting ${mode} review in ${workDir}`)
 
-Write exactly ONE report to: ${workDir}/cr/${dim}-round-1.md
-Follow the CR report template format with YAML frontmatter (dimension, round, result, issues_count).
-List each issue as ### ISSUE-001, ISSUE-002, etc.
+let activeDimensions = dimensions
+if (activeDimensions.length === 0) {
+  const activation = await agent(
+    `Run node ${pluginRoot}/scripts/cr-activation-check.js ${workDir}. Return only the activated dimension names as JSON. Explicitly include design, maintainability, and dead-code unless the user skipped them.`,
+    {
+      label: 'activate',
+      agentType: 'general-purpose',
+      phase: 'Activate',
+      schema: { type: 'array', items: { type: 'string' } },
+    },
+  )
+  activeDimensions = activation ?? []
+}
+if (activeDimensions.length === 0) return { status: 'skipped', reason: 'no active dimensions' }
 
-Do NOT modify any business code, state.json, or audit-log.jsonl.
-Target paths context: ${JSON.stringify(targetPaths)}
-
-Return: dimension name, result (pass/needs_fix/failed), report path, and array of issue IDs found.`,
-  { label: `cr:${dim}`, phase: 'CR', schema: FINDING_SCHEMA }
+const crResults = await parallel(activeDimensions.map((dimension) => () => agent(
+  `Run coverage-first read-only CR for dimension ${dimension}.
+Read ${pluginRoot}/dimensions/${dimension}.md and ${workDir}/file-inventory.md, then inspect every applicable target file.
+Write exactly one report to ${workDir}/cr/${dimension}-round-1.md using the repository CR template.
+Every issue ID MUST be globally unique and use ${dimension}:ISSUE-001, ${dimension}:ISSUE-002, etc.
+Each issue must contain file, symbol/line, concrete failure scenario, evidence, severity, confidence, and fix risk.
+Do not modify business code, state.json, or audit-log.jsonl.
+Targets: ${JSON.stringify(targetPaths)}`,
+  { label: `cr:${dimension}`, agentType: 'agent-cr', phase: 'CR', schema: FINDING_SCHEMA },
 )))
 
-const findings = crResults.filter(Boolean)
-const needsFix = findings.filter(f => f.result === 'needs_fix')
-const allIssueIds = needsFix.flatMap(f => f.issueIds ?? [])
-log(`CR complete: ${findings.length} dimensions reviewed, ${allIssueIds.length} issues found across ${needsFix.length} dimensions`)
+const validCr = crResults.filter(Boolean)
+const needsFix = validCr.filter((result) => result.result === 'needs_fix')
+const findings = needsFix.flatMap((result) => (result.issueIds ?? []).map((issueId) => ({
+  issueId,
+  dimension: result.dimension,
+  reportPath: result.reportPath,
+})))
+log(`CR barrier complete: ${validCr.length} reports, ${findings.length} findings`)
 
-if (allIssueIds.length === 0) {
-  log('All dimensions pass — no fixes needed')
-  return { status: 'pass', dimensions: findings }
-}
+await agent(
+  `Act as the sole CR barrier coordinator. In ${workDir}, verify every report exists, run gate-check.js for each report, and record each result with dimension-status.js --cr-done. Do these shared-state writes serially. Do not modify business code. Base commit: ${baseCommit}. Results: ${JSON.stringify(validCr)}`,
+  { label: 'cr-barrier', agentType: 'general-purpose', phase: 'CR' },
+)
 
-// --- Phase: Verify (parallel, read-only, adversarial) ---
-let confirmedIssues = allIssueIds
-
-if (budget.remaining() > 80000 && allIssueIds.length > 0) {
-  const verdicts = await parallel(allIssueIds.map(issueId => () => agent(
-    `Adversarially verify finding ${issueId}.
-Read the CR report that contains this issue and the source code it references.
-Your default stance is SKEPTICAL — actively search for evidence that REFUTES the claim.
-Write your verdict report to: ${workDir}/verification/${issueId}.md
-
-Check for: indirect references, framework conventions, public API usage, test coverage, dynamic calls.
-Only mark TRUE_POSITIVE if you independently confirm the problem exists.
-Mark FALSE_POSITIVE if you find refuting evidence.
-Mark UNCERTAIN if you cannot determine either way (it will be conservatively kept).`,
-    { label: `verify:${issueId}`, phase: 'Verify', schema: VERDICT_SCHEMA }
-  )))
-
-  const valid = verdicts.filter(Boolean)
-  const falsePositives = valid.filter(v => v.verdict === 'FALSE_POSITIVE').map(v => v.issueId)
-  confirmedIssues = allIssueIds.filter(id => !falsePositives.includes(id))
-  log(`Verification: ${valid.length} checked, ${falsePositives.length} dismissed as false positives, ${confirmedIssues.length} confirmed`)
-} else {
-  log('Skipping verification (budget constraint or no issues) — all findings treated as confirmed')
-}
-
-if (confirmedIssues.length === 0) {
-  log('All findings dismissed by verification')
-  return { status: 'pass_after_verification', dimensions: findings, dismissed: allIssueIds }
-}
-
-// --- Phase: Fix (serial per dimension, with regression check) ---
-const fixResults = []
-for (const dimResult of needsFix) {
-  const dim = dimResult.dimension
-  const dimIssues = (dimResult.issueIds ?? []).filter(id => confirmedIssues.includes(id))
-  if (dimIssues.length === 0) continue
-
-  log(`Fixing ${dim}: ${dimIssues.length} confirmed issues`)
-
+if (mode === 'deep') {
   await agent(
-    `Fix the confirmed issues in dimension "${dim}".
-Read the CR report: ${dimResult.reportPath}
-Only fix issues: ${dimIssues.join(', ')}
-Write your fix report to: ${workDir}/fix/${dim}-round-1.md
+    `Create a deep plan only. Use the gated CR reports in ${workDir}/cr and write ${workDir}/deep-plan.md. Include ordered fixes, dependencies, risk, validation commands, and rollback points. Do not modify business code. Then run node ${pluginRoot}/scripts/dimension-status.js ${workDir} --deep-plan-done.`,
+    { label: 'deep-plan', agentType: 'agent-cr', phase: 'Verify' },
+  )
+  return { status: 'deep_plan', dimensions: validCr, findings, workDir }
+}
 
-You MAY modify business code to fix the reported issues.
-Do NOT modify state.json or audit-log.jsonl.
-Do NOT fix issues that were not in your assigned list.`,
-    { label: `fix:${dim}`, phase: 'Fix' }
+if (findings.length === 0) return { status: 'pass', dimensions: validCr, workDir }
+
+const verification = budget.remaining() > 80000
+  ? await parallel(findings.map((finding) => () => agent(
+      `Independently verify only ${finding.issueId} in ${finding.reportPath}.
+Read the referenced source and search for refuting evidence: indirect calls, framework conventions, public API use, tests, and configuration-driven behavior.
+Write one report to ${workDir}/verification/${finding.dimension}-${finding.issueId.replace(/[^A-Za-z0-9-]/g, '_')}.md.
+Do not modify business code or shared state. UNCERTAIN is conservative and must be retained.`,
+      { label: `verify:${finding.issueId}`, agentType: 'agent-verifier', phase: 'Verify', schema: VERDICT_SCHEMA },
+    )))
+  : null
+
+if (!verification) {
+  log('budget below verification threshold; refusing automatic fixes')
+  return { status: 'verification_required', dimensions: validCr, findings, workDir }
+}
+
+const validVerification = verification.filter(Boolean)
+const dismissed = validVerification.filter((result) => result.verdict === 'FALSE_POSITIVE').map((result) => result.issueId)
+const confirmed = findings.filter((finding) => !dismissed.includes(finding.issueId))
+
+await agent(
+  `Act as the sole verification barrier coordinator. Import valid verifier reports from ${workDir}/verification into the persistent audit/state using workflow-lib.js. Apply FALSE_POSITIVE only when the report is valid; retain TRUE_POSITIVE and UNCERTAIN. Record malformed or missing reports as blocked. Do not modify business code.`,
+  { label: 'verification-barrier', agentType: 'general-purpose', phase: 'Verify' },
+)
+
+const fixResults = []
+for (const dimension of activeDimensions) {
+  const dimensionFindings = confirmed.filter((finding) => finding.dimension === dimension)
+  if (dimensionFindings.length === 0) continue
+
+  const issueIds = dimensionFindings.map((finding) => finding.issueId)
+  log(`serial fix: ${dimension} (${issueIds.length} findings)`)
+  const fix = await agent(
+    `Fix only ${issueIds.join(', ')} for dimension ${dimension}.
+Read the matching CR report(s). Before editing, record the current git diff for this run against ${baseCommit}.
+Modify only files and symbols justified by these findings. Do not change public APIs or unrelated files.
+Write ${workDir}/fix/${dimension}-round-1.md with changed files, diff summary, tests run, exit codes, and unresolved concerns.`,
+    { label: `fix:${dimension}`, agentType: 'agent-fixer', phase: 'Fix' },
   )
 
   const regression = await agent(
-    `Check for regressions after fixing dimension "${dim}".
-Read the fix report: ${workDir}/fix/${dim}-round-1.md
-Inspect ONLY the files and symbols mentioned in that fix report.
-Write your check to: ${workDir}/regression/${dim}-round-1.md
-
-Check for: removed error handling, changed signatures, new dead code, control flow changes, cross-dimension regressions.
-Report NO_REGRESSION if the fix is safe, REGRESSION_FOUND if you find problems.`,
-    { label: `regress:${dim}`, phase: 'Fix', schema: REGRESSION_SCHEMA }
+    `Check the serial fix for ${dimension}.
+Read ${workDir}/fix/${dimension}-round-1.md and inspect the actual diff against the pre-fix snapshot recorded in that report.
+Run the exact tests/typecheck/build commands listed there. Write ${workDir}/regression/${dimension}-round-1.md.
+Return CLEAN only when the diff is in scope, commands pass, and no behavioral regression is found.`,
+    { label: `regression:${dimension}`, agentType: 'agent-regression-check', phase: 'Fix', schema: REGRESSION_SCHEMA },
   )
-
-  if (regression && regression.verdict !== 'NO_REGRESSION') {
-    log(`REGRESSION detected in ${dim}: ${regression.verdict} — stopping fix loop`)
-    fixResults.push({ dimension: dim, fixed: false, regression: regression.verdict })
+  if (!regression || regression.verdict !== 'CLEAN') {
+    fixResults.push({ dimension, status: 'blocked', regression: regression?.verdict ?? 'UNCERTAIN' })
     break
   }
-  fixResults.push({ dimension: dim, fixed: true })
+  fixResults.push({ dimension, status: 'fixed', fix: Boolean(fix) })
 }
 
 return {
-  status: fixResults.some(r => !r.fixed) ? 'blocked_by_regression' : 'completed',
-  dimensions: findings,
-  confirmedIssues,
+  status: fixResults.some((result) => result.status === 'blocked') ? 'blocked_by_regression' : 'completed',
+  dimensions: validCr,
+  findings,
+  dismissed,
+  confirmed,
   fixResults,
+  workDir,
 }

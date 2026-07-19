@@ -24,7 +24,7 @@ function getStatus(workDir) {
   }
 
   const dims = state.dimensions || {};
-  const completed = Object.values(dims).filter(d => d.status === 'pass' || d.status === 'skipped' || d.status === 'exceed').length;
+  const completed = Object.values(dims).filter(d => d.status === 'pass' || d.status === 'skipped' || d.status === 'exceeded').length;
   const needsFix = Object.values(dims).filter(d => d.status === 'needs_fix').length;
   const running = Object.values(dims).filter(d => ['cr_running', 'fix_running'].includes(d.status)).length;
   const pending = Object.values(dims).filter(d => d.status === 'pending').length;
@@ -33,7 +33,7 @@ function getStatus(workDir) {
 
   // Determine current phase
   let phase = 'unknown';
-  if (state.status === 'done') phase = 'completed';
+  if (state.status === 'completed') phase = 'completed';
   else if (state.parallel_batch) phase = 'parallel_cr';
   else if (state.verification && Object.keys(state.verification).length > 0) phase = 'verification';
   else if (needsFix > 0) phase = 'fixing';
