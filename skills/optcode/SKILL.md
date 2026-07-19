@@ -1,34 +1,101 @@
 ---
-name: optcode
-description: Multi-dimension code review and auto-fix orchestrator. Invoked explicitly via /optcode.
-disable-model-invocation: true
-argument-hint: "[--mode light|deep|auto] [--diff [base_ref]] [--skip dim1,dim2] <target paths>"
+description: "Multi-dimension code review with parallel CR, adversarial verification, and regression-safe auto-fix. Use this skill when the user invokes /optcode or asks for structured multi-dimension code review."
+argument-hint: "[target paths] [--mode light|deep] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
+allowed-tools: ["Bash", "Read", "Write", "Agent", "Workflow", "Grep", "Glob"]
 ---
 
-# OptCode — 多维度代码审查与自动修复编排器
+# optcode — Dynamic Workflow Code Review
 
-<CONSTRAINT>每轮必须先调 orchestration-status.js 确定 action，不凭记忆跳步。CR agent 不改代码，所有修改由 fixer 执行。默认 mode=light；mode=deep 只生成结构诊断计划，不修改业务代码；mode=auto 必须先 preflight 再选择。</CONSTRAINT>
+Run multi-dimension code review using Claude Code's Dynamic Workflow for deterministic parallel orchestration.
 
-用户参数：`$ARGUMENTS`
+## Invocation
 
-## 当前工作流状态
+Parse user arguments:
+- **target paths**: files or directories to review (default: git tracked files in cwd)
+- **--mode**: `light` (default) or `deep` (adds deep-plan phase)
+- **--dims**: comma-separated dimension list to force-activate
+- **--skip**: comma-separated dimensions to skip
 
-!`node ${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js .optcode/$(ls -1 .optcode 2>/dev/null | sort -r | head -1) 2>/dev/null || echo '{"action":"init","reason":"no active workflow"}'`
+## Execution Steps
 
----
+### 1. Initialize workspace
 
-## 执行规则
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/init-state.js <target-paths...> [--mode light|deep] [--skip dim1,dim2]
+```
 
-上方脚本输出的 `next_steps` 是本轮唯一行动指令。严格按其内容执行，完成后重新触发本 skill 获取下一步。
+Capture the printed `work_dir` path (e.g. `.optcode/20250719-143022/`).
 
-若 action = `init`：Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/action-init.md` 执行启动流程。
+### 2. Build file inventory
 
-若 action = `done`：工作流已完成。如需重新审查，直接走 init 开启新流程。
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/file-inventory.js <work_dir>
+```
 
-其他所有 action：按 `next_steps` 字段指示执行，不需要额外参考文件。
+### 3. Launch Dynamic Workflow
 
----
+Call the Workflow tool:
 
-<HARD-GATE>
-Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/hard-gate.md` 获取铁律约束。
-</HARD-GATE>
+```
+Workflow({
+  scriptPath: "${CLAUDE_PLUGIN_ROOT}/workflows/optcode-review.js",
+  args: {
+    pluginRoot: "${CLAUDE_PLUGIN_ROOT}",
+    workDir: "<work_dir from step 1>",
+    targetPaths: [<parsed target paths>],
+    dimensions: [<--dims values or empty for auto-detect>],
+    mode: "<light or deep>"
+  }
+})
+```
+
+The workflow handles all orchestration:
+- **Activate**: determines which dimensions apply to the target code
+- **CR**: fans out parallel read-only review agents per dimension
+- **Verify**: adversarial verification of each finding (skipped if budget is low)
+- **Fix**: serial fixes with regression checks after each
+
+### 4. Present results
+
+After the workflow completes, summarize:
+- Dimensions reviewed and their results
+- Issues found, verified, and fixed
+- Any regressions detected
+- Overall quality assessment
+
+If the workflow returns `blocked_by_regression`, inform the user which dimension's fix caused the regression and suggest next steps.
+
+## Resumption
+
+If a previous run was interrupted, check for existing state:
+
+```bash
+node ${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js <work_dir>
+```
+
+This reports current phase and progress. Re-run the Workflow with the same `workDir` — agents will detect existing reports and skip completed work.
+
+## CLI Utilities
+
+These scripts are used by the workflow agents internally, but available for debugging:
+
+| Script | Purpose |
+|--------|---------|
+| `gate-check.js <work_dir> <artifact>` | Validate CR/fix report postconditions |
+| `dimension-status.js <work_dir> <action> [args]` | Transition dimension state |
+| `quality-gate.js <work_dir>` | Compute overall quality score |
+| `cr-activation-check.js <work_dir>` | Determine which dimensions to activate |
+| `verification-check.js <work_dir>` | Extract findings for verification |
+| `apply-verification.js <work_dir>` | Apply verification results to CR reports |
+
+## Dimensions
+
+8 review perspectives in `${CLAUDE_PLUGIN_ROOT}/dimensions/`:
+dead-code, duplication, concurrency, design, style, maintainability, legacy-safety, ai-sdd-smells
+
+## References
+
+- `references/cr-report-template.md` — CR report format
+- `references/fix-report-template.md` — Fix report format
+- `references/hard-gate.md` — Gate check rules
+- `references/dynamic-workflow.md` — Workflow architecture details

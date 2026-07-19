@@ -12,7 +12,9 @@
   "keywords": ["optcode", "code-review", "code-quality", "auto-fix", "refactor", "legacy-system"],
   "agents": [
     "./agents/agent-cr.md",
-    "./agents/agent-fixer.md"
+    "./agents/agent-fixer.md",
+    "./agents/agent-verifier.md",
+    "./agents/agent-regression-check.md"
   ],
   "skills": ["./skills/"]
 }

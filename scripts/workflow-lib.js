@@ -29,6 +29,24 @@ const DIMENSION_RESULTS = ['pending', 'in_progress', 'cr_running', 'cr_ready', '
 
 const FIX_STATUSES = ['DONE', 'DONE_WITH_CONCERNS', 'NEEDS_CONTEXT', 'BLOCKED'];
 
+// Dimension activation conditions — keywords that must appear in target code
+const DIMENSION_ACTIVATION = {
+  'dead-code': { always: true },
+  'duplication': { always: true },
+  'concurrency': {
+    always: false,
+    keywords: ['async', 'await', 'thread', 'mutex', 'lock', 'channel', 'goroutine', 'Promise.all', 'concurrent', 'parallel', 'Worker', 'Atomics', 'SharedArrayBuffer']
+  },
+  'design': { always: true },
+  'style': { always: true },
+  'maintainability': { always: true },
+  'legacy-safety': {
+    always: false,
+    keywords: ['deprecated', 'legacy', 'compat', 'migration', 'v1', 'old_', 'DEPRECATED', '@deprecated', 'backward']
+  },
+  'ai-sdd-smells': { always: true },
+};
+
 function ensureDir(dir) {
   mkdirSync(dir, { recursive: true });
 }
@@ -493,6 +511,7 @@ module.exports = {
   STAGNATION_THRESHOLD,
   DIMENSION_RESULTS,
   FIX_STATUSES,
+  DIMENSION_ACTIVATION,
   ensureDir,
   stateFile,
   auditLogFile,
