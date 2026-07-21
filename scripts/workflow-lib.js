@@ -349,8 +349,9 @@ function recordDeepPlanDone(workDir) {
   state.deep_plan.status = 'completed';
   state.deep_plan.path = state.deep_plan.path || join(workDir, 'deep-plan.md');
   state.deep_plan.completed_at = new Date().toISOString();
-  state.status = 'completed';
-  state.completed_at = state.deep_plan.completed_at;
+  // Deep plan is an intermediate checkpoint. The workflow remains resumable
+  // until fix, verification, and summary stages complete.
+  if (state.status === 'completed') state.status = 'reviewing';
   writeState(workDir, state);
   appendAudit(workDir, { type: 'deep_plan_completed', path: state.deep_plan.path });
   return state;
@@ -421,7 +422,8 @@ function getResumePoint(workDir) {
     if (!state.deep_plan || state.deep_plan.status !== 'completed') {
       return { action: 'deep_plan', reason: 'deep mode runs plan-only structural diagnosis' };
     }
-    return { action: 'done', reason: 'deep plan already completed', completed_at: state.deep_plan.completed_at };
+    // Deep plan is an intermediate checkpoint. Resume the normal CR/fix/
+    // verification flow below instead of treating the plan as terminal.
   }
 
   if (state.current_dimension) {

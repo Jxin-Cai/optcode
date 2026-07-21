@@ -108,7 +108,8 @@ if (mode === 'deep') {
     `Create a deep plan only. Use the gated CR reports in ${workDir}/cr and write ${workDir}/deep-plan.md. Include ordered fixes, dependencies, risk, validation commands, and rollback points. Do not modify business code. Then run node ${pluginRoot}/scripts/dimension-status.js ${workDir} --deep-plan-done.`,
     { label: 'deep-plan', agentType: 'agent-cr', phase: 'Verify' },
   )
-  return { status: 'deep_plan', dimensions: validCr, findings, workDir }
+  // A deep plan is an execution checkpoint, not a terminal outcome. Continue
+  // through verification and fixing so auto mode completes in one invocation.
 }
 
 if (findings.length === 0) return { status: 'pass', dimensions: validCr, workDir }

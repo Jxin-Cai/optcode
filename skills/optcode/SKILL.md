@@ -49,7 +49,7 @@ The Workflow performs:
 - parallel, read-only CR with `agent-cr`;
 - stable finding normalization and adversarial verification with `agent-verifier`;
 - a risk gate before any write;
-- serial fixes with `agent-fixer` only in light mode;
+- serial fixes with `agent-fixer` in light, deep, and auto modes after all required gates pass;
 - test/typecheck/build evidence, regression review, and same-dimension re-review after each fix;
 - atomic state and audit updates at phase barriers.
 
@@ -59,8 +59,8 @@ Parallel agents must write only unique reports. They must not write `state.json`
 
 Present the structured Workflow result and the artifact paths. Treat these as blocking outcomes:
 
-- `deep_plan`: show the plan; do not modify business code.
-- `verification_required`: report findings for review; do not auto-fix under budget pressure.
+- `deep_plan`: record the plan checkpoint and continue the same autonomous run; do not wait for a second invocation.
+- `verification_required`: report findings for review and stop only when the configured budget cannot safely continue.
 - `blocked_by_gate` or `blocked_by_regression`: show the failing evidence and stop.
 - `completed`: include changed files, tests, residual findings, and quality-gate result.
 
