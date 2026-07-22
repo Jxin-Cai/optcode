@@ -54,6 +54,10 @@ const {
   targetPaths = [],
   dimensions = [],
   mode = 'light',
+  fixEnabled = true,
+  singleDimension,
+  maxFindings,
+  resumeFix = false,
 } = normalizedArgs ?? {}
 
 if (!pluginRoot || !workDir || !baseCommit) {
@@ -64,7 +68,9 @@ if (!['light', 'deep', 'auto'].includes(mode)) throw new Error(`unsupported mode
 log(`optcode: starting ${mode} review in ${workDir}`)
 
 let activeDimensions = dimensions
-if (activeDimensions.length === 0) {
+if (singleDimension) {
+  activeDimensions = [singleDimension]
+} else if (activeDimensions.length === 0) {
   const activation = await agent(
     `Run node ${pluginRoot}/scripts/cr-activation-check.js ${workDir}. Return only the activated dimension names as JSON. Explicitly include design, maintainability, and dead-code unless the user skipped them.`,
     {
@@ -78,6 +84,11 @@ if (activeDimensions.length === 0) {
 }
 if (activeDimensions.length === 0) return { status: 'skipped', reason: 'no active dimensions' }
 
+const knownCtx = await agent(
+  `Run node ${pluginRoot}/scripts/known-issues.js context. Return only the stdout output as-is.`,
+  { label: 'known-issues-ctx', phase: 'Activate' },
+)
+
 const crResults = await parallel(activeDimensions.map((dimension) => () => agent(
   `Run coverage-first read-only CR for dimension ${dimension}.
 Read ${pluginRoot}/dimensions/${dimension}.md and ${workDir}/file-inventory.md, then inspect every applicable target file.
@@ -85,7 +96,8 @@ Write exactly one report to ${workDir}/cr/${dimension}-round-1.md using the repo
 Every issue ID MUST be globally unique and use ${dimension}:ISSUE-001, ${dimension}:ISSUE-002, etc.
 Each issue must contain file, symbol/line, concrete failure scenario, evidence, severity, confidence, and fix risk.
 Do not modify business code, state.json, or audit-log.jsonl.
-Targets: ${JSON.stringify(targetPaths)}`,
+Targets: ${JSON.stringify(targetPaths)}
+Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindings ? `\nReport at most ${maxFindings} findings.` : ''}`,
   { label: `cr:${dimension}`, agentType: 'agent-cr', phase: 'CR', schema: FINDING_SCHEMA },
 )))
 
@@ -97,6 +109,11 @@ const findings = needsFix.flatMap((result) => (result.issueIds ?? []).map((issue
   reportPath: result.reportPath,
 })))
 log(`CR barrier complete: ${validCr.length} reports, ${findings.length} findings`)
+
+await agent(
+  `Run node ${pluginRoot}/scripts/known-issues.js sync ${workDir}. This persists new findings to .optcode/known-issues.json.`,
+  { label: 'sync-issues', phase: 'CR' },
+)
 
 await agent(
   `Act as the sole CR barrier coordinator. In ${workDir}, verify every report exists, run gate-check.js for each report, and record each result with dimension-status.js --cr-done. Do these shared-state writes serially. Do not modify business code. Base commit: ${baseCommit}. Results: ${JSON.stringify(validCr)}`,
@@ -113,6 +130,7 @@ if (mode === 'deep') {
 }
 
 if (findings.length === 0) return { status: 'pass', dimensions: validCr, workDir }
+if (!fixEnabled) return { status: 'review_only', dimensions: validCr, findings, workDir }
 
 const verification = budget.remaining() > 80000
   ? await parallel(findings.map((finding) => () => agent(

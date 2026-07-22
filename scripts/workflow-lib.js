@@ -14,7 +14,8 @@ const DIMENSIONS = [
   'style',
   'maintainability',
   'legacy-safety',
-  'ai-sdd-smells'
+  'ai-sdd-smells',
+  'security'
 ];
 
 const MODES = ['light', 'deep', 'auto'];
@@ -45,6 +46,10 @@ const DIMENSION_ACTIVATION = {
     keywords: ['deprecated', 'legacy', 'compat', 'migration', 'v1', 'old_', 'DEPRECATED', '@deprecated', 'backward']
   },
   'ai-sdd-smells': { always: true },
+  'security': {
+    always: false,
+    keywords: ['password', 'secret', 'token', 'auth', 'login', 'session', 'cookie', 'jwt', 'bcrypt', 'crypto', 'hash', 'encrypt', 'decrypt', 'sql', 'query', 'exec', 'spawn', 'eval', 'innerHTML', 'dangerouslySetInnerHTML', 'sanitize', 'escape', 'cors', 'csrf', 'xss', 'req.body', 'req.params', 'req.query']
+  },
 };
 
 function ensureDir(dir) {

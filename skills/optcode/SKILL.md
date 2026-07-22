@@ -1,12 +1,30 @@
 ---
 description: "Use this skill when the user invokes /optcode or asks for multi-dimension code review, AI-generated code governance, or regression-safe automatic fixes."
-argument-hint: "[target paths] [--mode light|deep|auto] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
+argument-hint: "[review|fix|check|status] [target paths] [--mode light|deep|auto] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
 allowed-tools: ["Bash", "Read", "Write", "Agent", "Workflow", "Grep", "Glob"]
 ---
 
 # optcode
 
 Use Claude Code's native Dynamic Workflow as the only orchestration layer. Do not manually dispatch review or fixer agents from this skill and do not recreate a `next_steps` state machine.
+
+## 0. Sub-command routing
+
+Parse the first argument. If it matches a known sub-command, route accordingly. Otherwise treat it as a target path (backward-compatible).
+
+| Sub-command | Behavior |
+|-------------|----------|
+| (none) | Full CR + Fix flow (default, backward-compatible) |
+| `review` | CR + Verify only, no fixes. Pass `fixEnabled: false` to the Workflow. |
+| `fix [work-dir]` | Resume fixing from existing CR reports. Pass `resumeFix: true`. Auto-detect most recent work-dir with unresolved findings if omitted. |
+| `check <dim> [paths]` | Single-dimension quick check (budget=3 findings). Pass `singleDimension` and `maxFindings: 3`. |
+| `status [work-dir]` | Show run status. Run `orchestration-status.js` directly without launching a Workflow. |
+
+For `status`: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js" <work_dir>` and present the output. If no work-dir is given, use the most recent `.optcode/` directory. Do not start a Workflow.
+
+For `check`: skip full init-state if only one dimension is requested. Still create a work directory and file inventory, but pass `singleDimension` and `maxFindings` to the Workflow args.
+
+See `references/subcommands.md` for detailed semantics.
 
 ## 1. Parse and validate input
 

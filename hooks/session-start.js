@@ -56,6 +56,16 @@ function main() {
     console.log('');
     console.log('Resume with /optcode to continue the active workflow.');
   }
+
+  const kiPath = join(cwd, '.optcode', 'known-issues.json');
+  if (existsSync(kiPath)) {
+    try {
+      const issues = JSON.parse(readFileSync(kiPath, 'utf8'));
+      const active = issues.filter(i => i.status === 'active').length;
+      const deferred = issues.filter(i => i.status === 'deferred').length;
+      if (active || deferred) console.log(`Known issues: ${active} active, ${deferred} deferred`);
+    } catch {}
+  }
 }
 
 main();
