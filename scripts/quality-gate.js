@@ -48,6 +48,10 @@ function scoreDimension(dimState, workDir, dimension, base) {
         : 0;
       return base * (0.2 + 0.3 * fixRate);
     }
+    case 'cr_running':
+    case 'cr_ready':
+    case 'fix_running':
+    case 'fix_ready':
     case 'in_progress':
     case 'needs_fix': {
       const fixMeta = getLastFixStatus(workDir, dimension);

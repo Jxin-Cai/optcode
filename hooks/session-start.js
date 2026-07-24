@@ -38,7 +38,7 @@ function main() {
     const workDir = join(optcodeDir, entry.name);
     const state = readState(workDir);
     if (!state) continue;
-    const allDone = Object.values(state.dimensions).every(d => ['pass', 'failed', 'exceeded'].includes(d.status));
+    const allDone = Object.values(state.dimensions).every(d => ['pass', 'failed', 'exceeded', 'skipped'].includes(d.status));
     if (allDone && existsSync(join(workDir, 'summary.md'))) continue;
     activeWorkflows.push({ timestamp: entry.name, state });
   }

@@ -201,7 +201,9 @@ function main() {
     process.exit(1);
   }
   const checked = checkGate(workDir, gateId);
-  appendAudit(workDir, { type: 'gate_result', gate: gateId, pass: checked.pass, reason: checked.reason || '' });
+  if (existsSync(workDir)) {
+    appendAudit(workDir, { type: 'gate_result', gate: gateId, pass: checked.pass, reason: checked.reason || '' });
+  }
   console.log(JSON.stringify(checked));
   if (!checked.pass) process.exit(1);
 }

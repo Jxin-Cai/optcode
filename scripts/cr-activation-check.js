@@ -12,7 +12,7 @@
  */
 const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { DIMENSIONS, DIMENSION_ACTIVATION, readState } = require('./workflow-lib.js');
+const { DIMENSIONS, DIMENSION_ACTIVATION, readState, writeState } = require('./workflow-lib.js');
 
 const workDir = process.argv[2];
 
@@ -101,9 +101,11 @@ function main() {
     } else {
       results.skipped.push(dim);
       results.skip_reasons[dim] = check.reason;
+      state.dimensions[dim].status = 'skipped';
     }
   }
 
+  writeState(workDir, state);
   console.log(JSON.stringify(results, null, 2));
 }
 

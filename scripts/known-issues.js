@@ -116,7 +116,7 @@ function getContext(projectRoot) {
     lines.push(`Deferred (do NOT re-report): ${deferred.map(i => `${i.dimension}:${i.title} in ${i.file}`).join('; ')}`);
   }
   if (active.length > 0) {
-    lines.push(`Active (seen ${active.length} times across runs): ${active.slice(0, 10).map(i => `${i.dimension}:${i.title} in ${i.file} (seen ${i.run_count}x)`).join('; ')}`);
+    lines.push(`Active (${active.length} issues): ${active.slice(0, 10).map(i => `${i.dimension}:${i.title} in ${i.file} (seen ${i.run_count}x)`).join('; ')}`);
   }
   return lines.join('\n');
 }
