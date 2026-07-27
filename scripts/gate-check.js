@@ -19,7 +19,7 @@ function result(gate, pass, reason = '') {
 }
 
 function splitIssueBlocks(text) {
-  const matches = [...text.matchAll(/^###\s+ISSUE-\d+[^\n]*$/gm)];
+  const matches = [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?ISSUE-\d+[^\n]*$/gm)];
   return matches.map((match, index) => {
     const start = match.index;
     const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
@@ -39,7 +39,7 @@ function validateCrIssues(text, expectedCount) {
     return `frontmatter issues_count (${expectedCount}) does not match actual ISSUE count (${blocks.length})`;
   }
   for (const block of blocks) {
-    const id = (block.match(/^###\s+(ISSUE-\d+)/) || [])[1] || 'ISSUE-unknown';
+    const id = (block.match(/^###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)/) || [])[1] || 'ISSUE-unknown';
     const confidence = Number(parseIssueField(block, '置信度'));
     if (!Number.isFinite(confidence)) return `${id} missing numeric confidence`;
     if (confidence < 80 || confidence > 100) return `${id} confidence must be 80-100, got ${confidence}`;
@@ -182,7 +182,7 @@ function checkGate(workDir, gateId) {
       if (fm.result === 'failed' && fixed !== 0) {
         return result(gateId, false, 'failed result requires fixed_count to be 0');
       }
-      const rows = [...text.matchAll(/\|\s*ISSUE-\d+\s*\|/g)].length;
+      const rows = [...text.matchAll(/\|\s*(?:[A-Za-z][\w-]*:)?ISSUE-\d+\s*\|/g)].length;
       if (rows > 0 && rows !== total) {
         return result(gateId, false, `fix report table has ${rows} ISSUE rows but total_count is ${total}`);
       }

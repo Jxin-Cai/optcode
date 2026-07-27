@@ -95,3 +95,41 @@ test('rejects failed result when fixed_count is nonzero', () => {
   assert.equal(result.pass, false);
   assert.match(result.reason, /fixed_count to be 0/);
 });
+
+test('validates CR reports with dimension-prefixed ISSUE IDs', () => {
+  const dir = workDir();
+  writeFileSync(join(dir, 'cr', 'dead-code-round-1.md'), `---\nresult: needs_fix\nissues_count: 2\n---\n\n# CR Report\n\n## 审查结论\n\n发现 2 个问题。\n\n### dead-code:ISSUE-001: 未使用的导入\n\n- **严重程度**: medium\n- **置信度**: 90\n- **修复风险**: safe\n- **范围内问题**: yes\n- **Pre-existing**: no\n- **验证方式**: grep\n- **文件**: \`src/index.js\`\n- **位置**: line 3\n- **代码证据**: import unused\n- **修复方案**: 删除导入\n- **预期修复后代码**: 无此行\n\n### dead-code:ISSUE-002: 未使用的函数\n\n- **严重程度**: medium\n- **置信度**: 85\n- **修复风险**: local\n- **范围内问题**: yes\n- **Pre-existing**: yes\n- **验证方式**: grep\n- **文件**: \`src/utils.js\`\n- **位置**: line 20\n- **代码证据**: function never called\n- **修复方案**: 删除函数\n- **预期修复后代码**: 无此函数\n`);
+
+  const result = checkGate(dir, 'cr-complete:dead-code:1');
+
+  assert.equal(result.pass, true, result.reason);
+});
+
+test('validates fix report with dimension-prefixed ISSUE table rows', () => {
+  const dir = workDir();
+  writeFixReport(dir, `---\nresult: fixed\nstatus: DONE\nfixed_count: 1\ntotal_count: 1\n---\n\n# Fix\n\n## 修复结果\n\n| Issue ID | 问题 | 严重度 | 修复风险 | 修复状态 | 说明 |\n|----------|------|-------|---------|---------|------|\n| design:ISSUE-001 | demo | medium | local | fixed | ok |\n\n## 自检结果\n\n- **完整性**: 已处理\n\n## Diff 检查\n\n- 无关改动：无\n\n## 行为保真检查\n\n- 输入输出契约：保持\n`);
+
+  const result = checkGate(dir, 'fix-complete:design:1');
+
+  assert.equal(result.pass, true, result.reason);
+});
+
+test('rejects fix report when dimension-prefixed row count mismatches total_count', () => {
+  const dir = workDir();
+  writeFixReport(dir, `---\nresult: fixed\nstatus: DONE\nfixed_count: 2\ntotal_count: 2\n---\n\n# Fix\n\n## 修复结果\n\n| Issue ID | 问题 | 严重度 | 修复风险 | 修复状态 | 说明 |\n|----------|------|-------|---------|---------|------|\n| design:ISSUE-001 | demo | medium | local | fixed | ok |\n\n## 自检结果\n\n- **完整性**: 已处理\n\n## Diff 检查\n\n- 无关改动：无\n\n## 行为保真检查\n\n- 输入输出契约：保持\n`);
+
+  const result = checkGate(dir, 'fix-complete:design:1');
+
+  assert.equal(result.pass, false);
+  assert.match(result.reason, /ISSUE rows/);
+});
+
+test('rejects dimension-prefixed CR when issues_count mismatches', () => {
+  const dir = workDir();
+  writeFileSync(join(dir, 'cr', 'style-round-1.md'), `---\nresult: needs_fix\nissues_count: 3\n---\n\n# CR Report\n\n## 审查结论\n\n发现问题。\n\n### style:ISSUE-001: 命名不规范\n\n- **严重程度**: low\n- **置信度**: 80\n- **修复风险**: safe\n- **范围内问题**: yes\n- **Pre-existing**: no\n- **验证方式**: read\n- **文件**: \`src/a.js\`\n- **位置**: line 1\n- **代码证据**: bad name\n- **修复方案**: rename\n- **预期修复后代码**: renamed\n`);
+
+  const result = checkGate(dir, 'cr-complete:style:1');
+
+  assert.equal(result.pass, false);
+  assert.match(result.reason, /issues_count/);
+});

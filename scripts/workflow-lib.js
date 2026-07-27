@@ -253,7 +253,7 @@ function extractIssueIds(workDir, dimension, round) {
   const report = findCrReport(workDir, dimension, round);
   if (report) {
     const text = readFileSync(report.path, 'utf8');
-    const ids = [...text.matchAll(/###\s+(ISSUE-\d+)/g)].map(m => m[1]);
+    const ids = [...text.matchAll(/###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)/g)].map(m => m[1]);
     return [...new Set(ids)];
   }
   return [];
@@ -290,9 +290,11 @@ function recordFixResult(workDir, dimension, round, result, fixedCount = 0, stat
 
   if (result === 'failed' || status === 'BLOCKED') {
     dim.status = 'failed';
+    dim.issues_fixed += fixedCount;
     state.current_dimension = null;
   } else if (status === 'NEEDS_CONTEXT') {
     dim.status = 'failed';
+    dim.issues_fixed += fixedCount;
     state.current_dimension = null;
     appendAudit(workDir, { type: 'fix_needs_context', dimension, round });
   } else {
@@ -434,6 +436,12 @@ function getResumePoint(workDir) {
   if (state.current_dimension) {
     const dim = state.dimensions[state.current_dimension];
     if (dim.round > MAX_ROUNDS) {
+      if (dim.status === 'cr_ready') {
+        return { action: 'cr_gate', dimension: state.current_dimension, round: dim.round, reason: 'CR report ready for gate check (round exceeds max, process before exceeding)' };
+      }
+      if (dim.status === 'fix_ready') {
+        return { action: 'fix_gate', dimension: state.current_dimension, round: dim.round, reason: 'Fix report ready for gate check (round exceeds max, process before exceeding)' };
+      }
       return { action: 'exceed', dimension: state.current_dimension, reason: `round ${dim.round} exceeds max ${MAX_ROUNDS}` };
     }
     if (dim.status === 'cr_running') {

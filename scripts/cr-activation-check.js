@@ -32,8 +32,8 @@ function loadFileContents(workDir) {
   const inventory = readFileSync(inventoryPath, 'utf8');
   // Extract file paths from the markdown table
   const files = [];
-  for (const match of inventory.matchAll(/\|\s*\d+\s*\|\s*([^\s|]+)\s*\|/g)) {
-    files.push(match[1]);
+  for (const match of inventory.matchAll(/\|\s*\d+\s*\|\s*([^|]+?)\s*\|/g)) {
+    files.push(match[1].trim());
   }
 
   // Sample content from files (read first 200 lines of each, up to 50 files)

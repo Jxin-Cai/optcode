@@ -39,10 +39,15 @@ function makeFingerprint(dimension, title, file) {
   return `${dimension}:${slug}:${file}`;
 }
 
-function parseCrReport(content) {
+function dimensionFromFilename(filename) {
+  const match = filename.match(/^([a-z][\w-]*?)(?:-round-\d+|-pass|-failed)\.md$/);
+  return match ? match[1] : null;
+}
+
+function parseCrReport(content, filenameDimension) {
   const findings = [];
   const dimensionMatch = content.match(/^dimension:\s*(.+)$/m);
-  const dimension = dimensionMatch ? dimensionMatch[1].trim() : 'unknown';
+  const dimension = dimensionMatch ? dimensionMatch[1].trim() : (filenameDimension || 'unknown');
 
   const issuePattern = /###\s+(?:ISSUE-\d+|[A-Za-z-]+:ISSUE-\d+):\s*(.+)/g;
   let match;
@@ -73,7 +78,7 @@ function syncFromCrReports(projectRoot, workDir) {
 
   for (const report of reports) {
     const content = readFileSync(join(crDir, report), 'utf8');
-    const findings = parseCrReport(content);
+    const findings = parseCrReport(content, dimensionFromFilename(report));
 
     for (const finding of findings) {
       const id = makeFingerprint(finding.dimension, finding.title, finding.file);
