@@ -157,6 +157,10 @@ await agent(
   { label: 'verification-barrier', agentType: 'general-purpose', phase: 'Verify' },
 )
 
+if (confirmed.length === 0) {
+  return { status: 'all_dismissed', dimensions: validCr, findings, dismissed, confirmed: [], workDir }
+}
+
 // --- RCA Phase ---
 const RCA_SCHEMA = {
   type: 'object',
@@ -173,7 +177,7 @@ const RCA_SCHEMA = {
 const rcaByDimension = {}
 const dimensionsNeedingRca = [...new Set(confirmed.map((f) => f.dimension))]
 
-if (confirmed.length > 0 && budget.remaining() > 60000) {
+if (budget.remaining() > 60000) {
   phase('RCA')
   const rcaResults = await parallel(dimensionsNeedingRca.map((dimension) => () => {
     const dimFindings = confirmed.filter((f) => f.dimension === dimension)
@@ -191,11 +195,23 @@ Do not modify business code.`,
     )
   }))
 
+  const rcaValidated = []
+  const rcaSkipped = []
   for (const rcaResult of rcaResults.filter(Boolean)) {
-    rcaByDimension[rcaResult.dimension] = rcaResult
+    const gateResult = await agent(
+      `Run node ${pluginRoot}/scripts/gate-check.js ${workDir} rca-complete:${rcaResult.dimension}:1. Return the JSON output as-is.`,
+      { label: `rca-gate:${rcaResult.dimension}`, phase: 'RCA', schema: { type: 'object', properties: { pass: { type: 'boolean' }, reason: { type: 'string' } }, required: ['pass'] } },
+    )
+    if (gateResult && gateResult.pass) {
+      rcaByDimension[rcaResult.dimension] = rcaResult
+      rcaValidated.push(rcaResult.dimension)
+    } else {
+      rcaSkipped.push(`${rcaResult.dimension}: ${gateResult?.reason || 'gate check failed'}`)
+    }
   }
-  log(`RCA complete: ${Object.keys(rcaByDimension).length} dimensions analyzed`)
-} else if (confirmed.length > 0) {
+  if (rcaSkipped.length > 0) log(`RCA gate rejected: ${rcaSkipped.join('; ')} — fixer will use CR directly`)
+  log(`RCA complete: ${rcaValidated.length} validated, ${rcaSkipped.length} rejected`)
+} else {
   log('budget below RCA threshold; fixer will use CR reports directly')
 }
 
