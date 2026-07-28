@@ -19,8 +19,11 @@ Parse the first argument. If it matches a known sub-command, route accordingly. 
 | `fix [work-dir]` | Resume fixing from existing CR reports. Pass `resumeFix: true`. Auto-detect most recent work-dir with unresolved findings if omitted. |
 | `check <dim> [paths]` | Single-dimension quick check (budget=3 findings). Pass `singleDimension` and `maxFindings: 3`. |
 | `status [work-dir]` | Show run status. Run `orchestration-status.js` directly without launching a Workflow. |
+| `dashboard [work-dir]` | Open observation dashboard. Generate if not exists, or re-open existing. |
 
 For `status`: run `node "${CLAUDE_PLUGIN_ROOT}/scripts/orchestration-status.js" <work_dir>` and present the output. If no work-dir is given, use the most recent `.optcode/` directory. Do not start a Workflow.
+
+For `dashboard`: If work-dir has an existing `dashboard.md`, run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dashboard.js" open <work_dir>` and present the content. Otherwise run `node "${CLAUDE_PLUGIN_ROOT}/scripts/dashboard.js" generate <work_dir>` to create it first. If no work-dir is given, use the most recent `.optcode/` directory. Do not start a Workflow. Present the dashboard content directly to the user using Read.
 
 For `check`: skip full init-state if only one dimension is requested. Still create a work directory and file inventory, but pass `singleDimension` and `maxFindings` to the Workflow args.
 
@@ -101,5 +104,7 @@ Resume with the same `workDir` and `baseCommit`. The Workflow must verify existi
 - `dimension-status.js`: atomic dimension transitions
 - `quality-gate.js`: aggregate quality result
 - `cr-activation-check.js`: activation hints only; it cannot override explicit user dimensions
+- `dashboard.js`: observation dashboard (trend + debt + quality card)
+- `rules-loader.js`: team custom rules loader
 
 See `references/dynamic-workflow.md`, `references/cr-report-template.md`, `references/fix-report-template.md`, and `references/hard-gate.md` for artifact contracts.

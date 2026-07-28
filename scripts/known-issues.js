@@ -154,6 +154,39 @@ function list(projectRoot, statusFilter) {
   }
 }
 
+function suggestRules(projectRoot) {
+  const issues = loadKnownIssues(projectRoot);
+  const falsePositives = issues.filter(i => i.status === 'deferred' && i.deferred_reason && i.deferred_reason.toLowerCase().includes('false'));
+  if (falsePositives.length === 0) {
+    console.log('No false-positive deferrals found. Defer issues with reason containing "false" to generate suggestions.');
+    return;
+  }
+
+  const byDimension = {};
+  for (const fp of falsePositives) {
+    if (!byDimension[fp.dimension]) byDimension[fp.dimension] = [];
+    byDimension[fp.dimension].push(fp);
+  }
+
+  console.log('## 基于历史误报的规则建议\n');
+  for (const [dim, fps] of Object.entries(byDimension)) {
+    if (fps.length < 2) continue;
+    console.log(`### ${dim} (${fps.length} 次误报)\n`);
+    console.log('建议创建规则 `.optcode/rules/${dim}-exceptions.md`:\n');
+    console.log('```markdown');
+    console.log('---');
+    console.log(`scope: ${dim}`);
+    console.log('severity: low');
+    console.log('---\n');
+    console.log(`# ${dim} 维度例外\n`);
+    console.log('以下模式在本项目中属于有意设计，不应报告为问题：\n');
+    for (const fp of fps) {
+      console.log(`- ${fp.title} (${fp.file}) — ${fp.deferred_reason || ''}`);
+    }
+    console.log('```\n');
+  }
+}
+
 // CLI
 if (require.main === module) {
   const [,, command, ...rest] = process.argv;
@@ -189,8 +222,12 @@ if (require.main === module) {
       list(projectRoot, statusFilter);
       break;
     }
+    case 'suggest-rules': {
+      suggestRules(projectRoot);
+      break;
+    }
     default:
-      console.error('Usage: known-issues.js <sync|context|defer|resolve|list> [args]');
+      console.error('Usage: known-issues.js <sync|context|defer|resolve|list|suggest-rules> [args]');
       process.exit(1);
   }
 }

@@ -21,6 +21,8 @@
 | 维度状态 | `scripts/dimension-status.js` | 维度状态转换 CLI |
 | 文件清单 | `scripts/file-inventory.js` | 目标路径文件扫描 |
 | 质量门禁 | `scripts/quality-gate.js` | 基于维度结果计算质量评分（PASS/WARN/FAIL） |
+| 观测仪表盘 | `scripts/dashboard.js` | 质量评分+趋势+债务统一仪表盘（generate/open/history） |
+| 团队规则 | `scripts/rules-loader.js` | 加载 `.optcode/rules/*.md` 自定义审查规则 |
 
 ## 产物目录
 
@@ -28,10 +30,17 @@
 .optcode/{timestamp}/
 ├── state.json          # 工作流状态
 ├── audit-log.jsonl     # 审计日志
+├── dashboard.md        # 观测仪表盘（可重复打开）
 ├── file-inventory.md   # 文件清单
 ├── cr/                 # CR 报告
+│   └── arch-diagram.mmd  # 架构图（design 维度产出）
 ├── verification/       # 验证报告
 ├── rca/                # RCA 根因分析报告
 ├── fix/                # 修复报告
 └── regression/         # 回归检查报告
+
+.optcode/
+├── health-history.json # 跨运行健康分历史
+├── known-issues.json   # 跨运行已知问题
+└── rules/*.md          # 团队自定义审查规则
 ```

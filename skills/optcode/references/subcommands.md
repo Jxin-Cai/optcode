@@ -64,6 +64,34 @@
 
 ---
 
+## `/optcode dashboard [work-dir]`
+
+打开观测仪表盘。合并展示质量评分、健康分趋势（跨运行）和技术债务评估（当次运行）。
+
+如果指定的 work-dir 已有 `dashboard.md`，直接打开展示；否则自动生成后展示。
+如果未指定 work-dir，使用最近一个 `.optcode/` 运行目录。
+
+**产出**: `{work-dir}/dashboard.md`（持久化产物，可反复查看）
+
+**数据来源**:
+- 当次质量门禁评分（`quality-gate.js`）
+- 跨运行健康趋势（`.optcode/health-history.json`）
+- 当次 CR 报告（`{work-dir}/cr/*.md`）
+
+**仪表盘包含**:
+- 质量评分卡（判定/得分/维度明细）
+- 健康分趋势走势（最近 10 次 + 趋势判定）
+- 技术债务概览（热区文件/维度健康/偿还路线图）
+- 架构图（如有）
+
+**示例**:
+```
+/optcode dashboard
+/optcode dashboard .optcode/20240720-143000
+```
+
+---
+
 ## 向后兼容
 
 当第一个参数不是已知子命令（`review`、`fix`、`check`、`status`）时，视为目标路径，执行完整的 CR + Fix 流程（与之前版本行为一致）。

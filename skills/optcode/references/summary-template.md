@@ -37,6 +37,14 @@
 | 遗留安全 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 | AI/SDD 坏味道 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 
+## 架构图
+
+> 如果本次审查产出了 `cr/arch-diagram.mmd`，在此嵌入 Mermaid 图。如无则删除本节。
+
+```mermaid
+<arch-diagram.mmd 内容>
+```
+
 ## 变更统计
 
 - 变更文件数：N

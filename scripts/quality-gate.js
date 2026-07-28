@@ -72,6 +72,13 @@ function scoreDimension(dimState, workDir, dimension, base) {
   }
 }
 
+function recordToHistory(workDir, gateOutput, state) {
+  try {
+    const { recordHistory } = require('./dashboard.js');
+    recordHistory(process.cwd(), workDir, gateOutput, state);
+  } catch { /* non-critical — don't break quality-gate on history failure */ }
+}
+
 function main() {
   const state = readState(workDir);
   if (!state) {
@@ -127,6 +134,10 @@ function main() {
   };
 
   console.log(JSON.stringify(output, null, 2));
+
+  if (state.status === 'completed') {
+    recordToHistory(workDir, output, state);
+  }
 }
 
 main();

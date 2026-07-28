@@ -20,10 +20,12 @@ tools: Read, Write, Glob, Grep, Bash
 - `TASK.round` — 当前轮次
 - `TASK.prev_report` — 上轮 CR 报告路径（round > 1）
 - `TASK.file_inventory` — 文件清单路径
+- `TASK.team_rules` — 团队自定义规则文本（可选，由编排器注入）
 
 ## 执行流程
 
 1. Read `TASK.dimension_perspective` 获取检查清单和维度规则
+1.5. 如果 `TASK.team_rules` 非空，将其作为额外审查约束条件。团队规则优先级高于维度默认规则——如果存在冲突，遵循团队规则。
 2. Read `TASK.file_inventory` 获取目标文件列表（不存在则 Glob 扫描）
 3. 逐文件 Read + 按检查清单审查，用 Grep 做跨文件验证收集证据
 4. round > 1 时：Read `TASK.prev_report` 作参考，但必须亲自检查代码现状验证修复结果
@@ -32,6 +34,7 @@ tools: Read, Write, Glob, Grep, Bash
    - 有问题：`{work_dir}/cr/{dimension}-round-{round}.md`（result: needs_fix）
    - 无高置信度问题：`{work_dir}/cr/{dimension}-pass.md`（result: pass）
    - 审查失败：`{work_dir}/cr/{dimension}-failed.md`（result: failed）
+7. 当 `TASK.dimension` 为 `design` 且存在耦合/循环依赖/分层穿透问题时，额外 Write `{work_dir}/cr/arch-diagram.mmd` 输出 Mermaid 依赖图（参考 `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/arch-diagram-guide.md`）
 
 ## 置信度规则
 
@@ -59,6 +62,13 @@ tools: Read, Write, Glob, Grep, Bash
 - `代码证据`
 - `修复方案`
 - `预期修复后代码`
+
+## ISSUE 可选字段（建议填写）
+
+- `原理引用`: 当问题对应经典工程原则时引用。参考 `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/engineering-principles.md` 中的索引。格式：`原则名称 —《书名》(作者) 章节`
+- `衰变风险`: 评估不修复时的恶化程度。`low` = 长期稳定不恶化；`medium` = 随代码量增长线性恶化；`high` = 可能指数级恶化或触发级联故障。附一句话说明恶化机制。
+
+这两个字段不是必填——只在问题有明确原理对应或明显衰变趋势时填写。
 
 ## 范围与 pre-existing 判断
 

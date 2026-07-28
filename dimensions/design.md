@@ -50,3 +50,4 @@
 - 必须说明为什么这个设计违反在此处是个问题（而不只是引用原则名称）
 - 对于已成型的架构模式（即使不完美），如果改动成本远大于收益，标注但不强制修复
 - 修复风险判定：提取常量/简化条件 = safe；提取接口/拆分函数 = local；拆分模块/调整依赖方向/引入抽象层 = structural；改变公共 API 契约 = behavior-risk
+- 当发现涉及耦合/循环依赖/分层穿透的问题时，在报告末尾额外产出 Mermaid 架构图（`{work_dir}/cr/arch-diagram.mmd`），高亮问题模块。参考 `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/arch-diagram-guide.md`
