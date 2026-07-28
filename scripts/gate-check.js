@@ -7,6 +7,7 @@
  *   - state-initialized: state.json exists and is valid
  *   - cr-complete:<dimension>:<round>: CR report exists with valid frontmatter
  *   - fix-complete:<dimension>:<round>: Fix report exists with valid frontmatter + self-review
+ *   - rca-complete:<dimension>:<round>: RCA report exists with valid structure
  *   - summary-exists: summary.md exists
  *   - deep-plan-exists: deep-plan.md exists with required structure
  */
@@ -185,6 +186,39 @@ function checkGate(workDir, gateId) {
       const rows = [...text.matchAll(/\|\s*(?:[A-Za-z][\w-]*:)?ISSUE-\d+\s*\|/g)].length;
       if (rows > 0 && rows !== total) {
         return result(gateId, false, `fix report table has ${rows} ISSUE rows but total_count is ${total}`);
+      }
+    }
+    return result(gateId, true);
+  }
+
+  // rca-complete:<dimension>:<round>
+  const rcaMatch = gateId.match(/^rca-complete:([^:]+):(\d+)$/);
+  if (rcaMatch) {
+    const [, dimension, roundStr] = rcaMatch;
+    const round = Number(roundStr);
+    const rcaFile = join(workDir, 'rca', `${dimension}-round-${round}.md`);
+    if (!existsSync(rcaFile)) return result(gateId, false, `RCA report missing: ${dimension}-round-${round}.md`);
+    const text = readFileSync(rcaFile, 'utf8');
+    const fm = readFrontmatter(text);
+    if (!fm.cluster_count) return result(gateId, false, 'RCA report missing cluster_count in frontmatter');
+    if (!fm.dimension) return result(gateId, false, 'RCA report missing dimension in frontmatter');
+    if (!fm.mode || !['full', 'light'].includes(fm.mode)) return result(gateId, false, 'RCA report missing or invalid mode in frontmatter (must be full or light)');
+    const clusterHeadings = [...text.matchAll(/^## Cluster C-\d+/gm)];
+    if (clusterHeadings.length !== Number(fm.cluster_count)) {
+      return result(gateId, false, `frontmatter cluster_count (${fm.cluster_count}) does not match actual cluster count (${clusterHeadings.length})`);
+    }
+    for (let i = 0; i < clusterHeadings.length; i++) {
+      const start = clusterHeadings[i].index;
+      const end = i + 1 < clusterHeadings.length ? clusterHeadings[i + 1].index : text.length;
+      const clusterText = text.slice(start, end);
+      const clusterId = (clusterText.match(/^## Cluster (C-\d+)/) || [])[1] || `C-${i + 1}`;
+      if (!clusterText.includes('### 违反原则')) return result(gateId, false, `${clusterId} missing 违反原则 section`);
+      if (!clusterText.includes('### 原则对齐策略')) return result(gateId, false, `${clusterId} missing 原则对齐策略 section`);
+      if (!clusterText.includes('### 验收标准')) return result(gateId, false, `${clusterId} missing 验收标准 section`);
+      const acStart = clusterText.indexOf('### 验收标准');
+      const acText = clusterText.slice(acStart);
+      if (!acText.includes('- [ ]') && !acText.includes('- [x]')) {
+        return result(gateId, false, `${clusterId} 验收标准 must contain at least one checklist item`);
       }
     }
     return result(gateId, true);

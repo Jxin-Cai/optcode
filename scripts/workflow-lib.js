@@ -152,6 +152,7 @@ function initState(workDir, targetPaths, baseCommit, skipDimensions = [], option
   ensureDir(join(workDir, 'cr'));
   ensureDir(join(workDir, 'fix'));
   ensureDir(join(workDir, 'verification'));
+  ensureDir(join(workDir, 'rca'));
   ensureDir(join(workDir, 'regression'));
   writeState(workDir, state);
   appendAudit(workDir, {
@@ -190,6 +191,11 @@ function findCrReport(workDir, dimension, round) {
 
 function findFixReport(workDir, dimension, round) {
   const path = join(workDir, 'fix', `${dimension}-round-${round}-fix.md`);
+  return existsSync(path) ? path : null;
+}
+
+function findRcaReport(workDir, dimension, round) {
+  const path = join(workDir, 'rca', `${dimension}-round-${round}.md`);
   return existsSync(path) ? path : null;
 }
 
@@ -540,6 +546,7 @@ module.exports = {
   startDimension,
   findCrReport,
   findFixReport,
+  findRcaReport,
   markCrRunning,
   markCrReady,
   markFixRunning,

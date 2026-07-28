@@ -6,6 +6,7 @@ export const meta = {
     { title: 'Activate', detail: 'resolve applicable review dimensions' },
     { title: 'CR', detail: 'parallel read-only coverage review' },
     { title: 'Verify', detail: 'parallel adversarial finding verification' },
+    { title: 'RCA', detail: 'root cause clustering and principle-aligned strategy' },
     { title: 'Fix', detail: 'serial bounded fixes with evidence and re-review' },
   ],
 }
@@ -156,16 +157,66 @@ await agent(
   { label: 'verification-barrier', agentType: 'general-purpose', phase: 'Verify' },
 )
 
+// --- RCA Phase ---
+const RCA_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    dimension: { type: 'string' },
+    cluster_count: { type: 'integer' },
+    report_path: { type: 'string' },
+    mode: { type: 'string', enum: ['full', 'light'] },
+  },
+  required: ['dimension', 'cluster_count', 'report_path'],
+}
+
+const rcaByDimension = {}
+const dimensionsNeedingRca = [...new Set(confirmed.map((f) => f.dimension))]
+
+if (confirmed.length > 0 && budget.remaining() > 60000) {
+  phase('RCA')
+  const rcaResults = await parallel(dimensionsNeedingRca.map((dimension) => () => {
+    const dimFindings = confirmed.filter((f) => f.dimension === dimension)
+    const issueIds = dimFindings.map((f) => f.issueId).join(', ')
+    const crReport = dimFindings[0]?.reportPath || `${workDir}/cr/${dimension}-round-1.md`
+    return agent(
+      `Perform root cause analysis for dimension ${dimension}.
+Read the CR report at ${crReport} and verification reports in ${workDir}/verification/.
+Confirmed issue IDs: ${issueIds}.
+Cluster these confirmed findings by shared root cause, identify violated design principles, and produce principle-aligned fix strategies.
+Write the RCA report to ${workDir}/rca/${dimension}-round-1.md using the RCA template at ${pluginRoot}/skills/optcode/references/rca-report-template.md.
+If there are only 1-2 issues with severity=low and fix_risk=safe, use mode=light (minimal single-cluster analysis).
+Do not modify business code.`,
+      { label: `rca:${dimension}`, agentType: 'agent-rca', phase: 'RCA', schema: RCA_SCHEMA },
+    )
+  }))
+
+  for (const rcaResult of rcaResults.filter(Boolean)) {
+    rcaByDimension[rcaResult.dimension] = rcaResult
+  }
+  log(`RCA complete: ${Object.keys(rcaByDimension).length} dimensions analyzed`)
+} else if (confirmed.length > 0) {
+  log('budget below RCA threshold; fixer will use CR reports directly')
+}
+
+// --- Fix Phase ---
+phase('Fix')
 const fixResults = []
 for (const dimension of activeDimensions) {
   const dimensionFindings = confirmed.filter((finding) => finding.dimension === dimension)
   if (dimensionFindings.length === 0) continue
 
   const issueIds = dimensionFindings.map((finding) => finding.issueId)
+  const rcaInfo = rcaByDimension[dimension]
+  const rcaContext = rcaInfo
+    ? `\nRead the RCA report at ${rcaInfo.report_path} FIRST. Fix according to the principle-aligned strategies and acceptance criteria defined there, not just the symptom-level CR proposals.`
+    : ''
+
   log(`serial fix: ${dimension} (${issueIds.length} findings)`)
   const fix = await agent(
     `Fix only ${issueIds.join(', ')} for dimension ${dimension}.
-Read the matching CR report(s). Before editing, record the current git diff for this run against ${baseCommit}.
+Read the matching CR report(s).${rcaContext}
+Before editing, record the current git diff for this run against ${baseCommit}.
 Modify only files and symbols justified by these findings. Do not change public APIs or unrelated files.
 Write ${workDir}/fix/${dimension}-round-1.md with changed files, diff summary, tests run, exit codes, and unresolved concerns.`,
     { label: `fix:${dimension}`, agentType: 'agent-fixer', phase: 'Fix' },

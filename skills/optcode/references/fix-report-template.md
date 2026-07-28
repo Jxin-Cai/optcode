@@ -17,6 +17,14 @@ total_count: <N>
 |----------|------|-------|---------|---------|------|
 | ISSUE-001 | <问题描述> | high/medium/low | safe/local/structural/behavior-risk | fixed / skipped / failed / deferred | <说明> |
 
+## RCA 引用
+
+> 仅当存在 RCA 报告时填写。列出每个 Cluster 的验收标准完成状态。无 RCA 报告时删除此节。
+
+| Cluster ID | 违反原则 | 验收标准摘要 | 完成状态 |
+|------------|---------|------------|---------|
+| C-001 | <principle> | <criteria summary> | met / partially_met / not_met |
+
 ## 自检结果
 
 - **完整性**: <所有 ISSUE 均已处理 / 遗漏 ISSUE-XXX，原因：...>
@@ -24,6 +32,7 @@ total_count: <N>
 - **副作用**: <调用方检查通过 / 发现潜在影响，说明：...>
 - **一致性**: <符合项目风格 / 存在偏差，说明：...>
 - **行为保真**: <输入输出契约不变 / 有变化，说明：...>
+- **原则对齐**: <（仅 RCA 模式）修复遵循识别的设计原则 / 存在偏离，说明：...>
 
 ## Diff 检查
 

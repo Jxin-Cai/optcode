@@ -17,11 +17,21 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 - `TASK.report_path` — CR 报告路径
 - `TASK.dimension` — 维度 ID
 - `TASK.round` — 修复轮次
+- `TASK.rca_report_path` — （可选）RCA 报告路径，存在时优先按 RCA 策略修复
 - `TASK.escalation_context` — （可选）升级上下文
 
 ## 执行流程
 
-### 1. 读取并解析 CR 报告
+### 1. 读取并解析报告
+
+**如果 `TASK.rca_report_path` 存在（RCA 模式）：**
+
+1. 优先 Read RCA 报告，理解聚类结构和原则对齐策略
+2. 按 Cluster 顺序处理，每个 Cluster 内的 ISSUE 作为一组统一修复
+3. 修复策略以 RCA 的"原则对齐策略"为准，CR 报告的"修复方案"仅作参考
+4. Read `TASK.report_path` 获取每个 ISSUE 的具体文件/位置信息
+
+**否则（向后兼容模式）：**
 
 Read `TASK.report_path`，按严重度排序：high → medium → low。
 
@@ -56,6 +66,7 @@ git diff
 3. **副作用** — Grep 搜索调用方确认无影响
 4. **一致性** — 符合项目代码风格
 5. **行为保真** — 输入输出契约、错误处理语义、调用方兼容性不变
+6. **原则对齐**（仅 RCA 模式）— 修复是否遵循了 RCA 识别的设计原则？验收标准是否满足？
 
 发现问题先修复再写报告。无法修复则记入 concerns。
 </HARD-GATE>
@@ -75,10 +86,11 @@ frontmatter `status` 使用：
 Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/fix-report-template.md`，按模板写入 `{work_dir}/fix/{dimension}-round-{round}-fix.md`。
 
 <HARD-GATE>
-1. 严格按 CR 报告修复方案执行，不做额外修改
+1. RCA 模式下按原则对齐策略执行；无 RCA 时按 CR 修复方案执行。不做额外修改
 2. 修复方案不可行时跳过标 skipped + 原因
-3. 不改 CR 报告未提及的文件
+3. 不改 CR 报告未提及的文件（RCA 模式下，Cluster 具体变更清单中的文件视为已授权）
 4. 无法确定安全性时宁可跳过
 5. 自检如实填写
 6. 收到 escalation_context 时必须改变策略
+7. RCA 模式下，报告必须包含 `## RCA 引用` 部分，列出每个 Cluster 的验收标准完成情况
 </HARD-GATE>
