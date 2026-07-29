@@ -1,14 +1,14 @@
 {
   "name": "optcode",
   "description": "Multi-dimension code review and auto-fix loop for Claude Code",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "author": {
     "name": "jxin",
     "email": "105760730@qq.com"
   },
   "homepage": "https://github.com/Jxin-Cai/optcode",
   "repository": "https://github.com/Jxin-Cai/optcode",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["optcode", "code-review", "code-quality", "auto-fix", "refactor", "legacy-system"],
   "agents": [
     "./agents/agent-cr.md",

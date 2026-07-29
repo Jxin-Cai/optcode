@@ -1,142 +1,218 @@
+<div align="center">
+
 # OptCode
 
-多维度代码审查与自动修复循环 —— Claude Code 插件。
+**Multi-dimension code review and auto-fix loop — a Claude Code plugin.**
 
-通过轻量/重度/自动三种模式按需治理代码质量：轻量模式执行 7 个维度的 **CR → 修复 → diff 复核** 闭环；重度模式先输出结构诊断与分阶段重构计划；自动模式先预检再选择合适路径。
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
+[![Claude Code](https://img.shields.io/badge/Claude_Code-Plugin-D97757.svg)](https://github.com/anthropics/claude-code)
+[![Version](https://img.shields.io/badge/Version-0.11.0-green.svg)](./.claude-plugin/plugin.json)
 
-## 模式
+[中文文档](./README_zh.md)&ensp;|&ensp;[License](./LICENSE)
 
-| 模式 | 行为 | 是否修改代码 |
-|------|------|--------------|
-| `light` | 现有 7 维 CR/fix 循环，适合局部清理和低风险修复 | 是 |
-| `deep` | 结构诊断、风险分层、分阶段实施计划，适合大类拆分、领域沉淀、公共复用规划 | 否 |
-| `auto` | 先 preflight，再保守选择 `light` 或 `deep` plan-only | 视决策而定 |
+</div>
 
-不传 `--mode` 时默认 `light`，行为与旧版本一致。
+<br/>
 
-## 审查维度
+OptCode is a [Claude Code](https://github.com/anthropics/claude-code) plugin that orchestrates **multi-dimension code review** with an **automatic fix loop**. It treats code quality as a closed-loop system: review across 8 dimensions, root-cause analysis, principled fix, verification, and regression check — all driven by a lightweight state machine.
 
-| 维度 | 说明 |
-|------|------|
-| dead-code | 无效代码残料（未使用变量/函数/import、死代码块） |
-| duplication | 重复代码（复制粘贴、可抽象的重复逻辑） |
-| concurrency | 并发安全（竞态条件、死锁、原子性违反） |
-| design | 设计原则（SRP、OCP、高内聚低耦合、分层边界） |
-| style | 代码风格一致性（命名规范、格式、注释） |
-| maintainability | 可维护性（可读性、模块化、错误处理） |
-| legacy-safety | 遗留系统安全性（隐式业务规则、高风险核心路径） |
-| ai-sdd-smells | AI/SDD 坏味道（需求漂移、过度工程、上下文污染） |
+Three operating modes let you choose the right depth for the job:
 
-## 安装
+| Mode | Behavior | Modifies Code |
+|------|----------|:---:|
+| `light` | 8-dimension CR → fix → diff verification loop. Ideal for local cleanups and low-risk fixes | Yes |
+| `deep` | Structural diagnosis, risk layering, and phased refactoring plan. Ideal for large-scale decomposition | No |
+| `auto` | Preflight inspection, then conservatively picks `light` or `deep` plan-only | Depends |
 
-### 1. 添加插件市场
+<br/>
+
+## Table of Contents
+
+- [Review Dimensions](#review-dimensions)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Workflow](#workflow)
+- [Artifacts](#artifacts)
+- [Architecture](#architecture)
+- [Team Rules](#team-rules)
+- [Contributing](#contributing)
+- [License](#license)
+
+<br/>
+
+## Review Dimensions
+
+| Dimension | What it checks |
+|-----------|---------------|
+| dead-code | Unused variables, functions, imports, and dead code blocks |
+| duplication | Copy-paste code, abstractable repeated logic |
+| concurrency | Race conditions, deadlocks, atomicity violations |
+| design | SRP, OCP, cohesion/coupling, layering boundaries |
+| style | Naming conventions, formatting, comment consistency |
+| maintainability | Readability, modularity, error handling |
+| legacy-safety | Implicit business rules, high-risk core paths |
+| ai-sdd-smells | Requirement drift, over-engineering, context pollution |
+
+<br/>
+
+## Installation
+
+### From Plugin Marketplace
 
 ```bash
+# Add the marketplace
 claude plugin marketplace add git@github.com:Jxin-Cai/optcode.git
-```
 
-### 2. 安装插件
-
-```bash
+# Install the plugin
 claude plugin install optcode@optcode
 ```
 
-### 管理命令
+### Management Commands
 
 ```bash
-claude plugin marketplace list          # 查看已添加的市场
-claude plugin marketplace update        # 更新市场索引
-claude plugin list                      # 查看已安装插件
-claude plugin update optcode            # 更新插件
-claude plugin uninstall optcode         # 卸载插件
-claude plugin marketplace remove optcode  # 移除市场
+claude plugin marketplace list          # List added marketplaces
+claude plugin marketplace update        # Update marketplace index
+claude plugin list                      # List installed plugins
+claude plugin update optcode            # Update plugin
+claude plugin uninstall optcode         # Uninstall plugin
+claude plugin marketplace remove optcode  # Remove marketplace
 ```
 
-## 使用
+<br/>
+
+## Usage
 
 ```bash
-# 审查当前目录（默认 light）
+# Review current directory (default: light mode)
 /optcode
 
-# 审查指定路径
+# Review specific path
 /optcode src/
 
-# 审查多个路径
+# Review multiple paths
 /optcode src/core,src/utils,lib/
 
-# 审查指定文件
+# Review specific files
 /optcode src/main.go,src/handler.go
 
-# 显式轻量模式
+# Explicit light mode
 /optcode --mode light src/
 
-# 重度结构诊断，只生成 deep-plan.md，不修改代码
+# Deep structural diagnosis (plan only, no code changes)
 /optcode --mode deep src/
 
-# 自动预检后选择 light 或 deep plan-only
+# Auto mode: preflight then pick light or deep
 /optcode --mode auto src/
 
-# 仅审查 git 变更文件
+# Review only git-changed files
 /optcode --diff
 /optcode --diff main
 
-# 跳过指定轻量维度
+# Skip specific dimensions
 /optcode --skip style,design src/
 
-# 组合使用
+# Combine options
 /optcode --mode auto --diff main
 ```
 
-## 工作流程
+<br/>
+
+## Workflow
 
 ```
 /optcode <paths>
     │
     ▼
-orchestration-status.js（每轮调用，确定 action）
+orchestration-status.js (determine action each round)
     │
-    ├─ init             → 初始化状态 + 文件清单
-    ├─ preflight        → auto 模式预检，选择 light/deep
-    ├─ deep_plan        → deep 模式结构诊断与计划
-    ├─ start_dimension  → light 模式切入下一个维度
-    ├─ cr               → agent-cr(opus) 审查，输出 CR 报告
-    ├─ fix              → agent-fixer(sonnet) 修复，输出 fix 报告
-    ├─ escalate         → 停滞检测后升级修复策略
-    ├─ exceed           → 超出轮次上限，跳过维度
-    └─ summary          → 所有维度完成，输出总结报告
+    ├─ init             → Initialize state + file inventory
+    ├─ preflight        → Auto mode inspection, pick light/deep
+    ├─ deep_plan        → Deep mode structural diagnosis & plan
+    ├─ start_dimension  → Light mode: enter next dimension
+    ├─ cr               → agent-cr (opus) reviews, outputs CR report
+    ├─ rca              → agent-rca clusters issues, outputs principle-aligned strategy
+    ├─ fix              → agent-fixer (sonnet) fixes based on RCA strategy
+    ├─ verify           → Verification pass on fix results
+    ├─ escalate         → Stall detection, escalate fix strategy
+    ├─ exceed           → Round limit exceeded, skip dimension
+    └─ summary          → All dimensions complete, output summary + dashboard
 ```
 
-每轮通过 `gate-check.js` 验证产物合规性，通过 `dimension-status.js` 推进状态机。
+Each round validates artifacts via `gate-check.js` and advances the state machine via `dimension-status.js`.
 
-## 产物目录
+<br/>
 
-运行时产物存储在目标项目的 `.optcode/` 下：
+## Artifacts
+
+Runtime artifacts are stored under `.optcode/` in the target project:
 
 ```
 .optcode/{timestamp}/
-├── state.json          # 工作流状态
-├── audit-log.jsonl     # 审计日志
-├── file-inventory.md   # 文件清单
-├── preflight.md        # auto 模式预检结果
-├── deep-plan.md        # deep 模式结构诊断计划
-├── cr/                 # CR 报告
-├── fix/                # 修复报告
-└── summary.md          # 最终总结
+├── state.json          # Workflow state
+├── audit-log.jsonl     # Audit log
+├── dashboard.md        # Observation dashboard (re-openable)
+├── file-inventory.md   # File inventory
+├── preflight.md        # Auto mode preflight result
+├── deep-plan.md        # Deep mode structural plan
+├── cr/                 # CR reports
+│   └── arch-diagram.mmd  # Architecture diagram (design dimension)
+├── verification/       # Verification reports
+├── rca/                # RCA root-cause analysis reports
+├── fix/                # Fix reports
+├── regression/         # Regression check reports
+└── summary.md          # Final summary
+
+.optcode/
+├── health-history.json # Cross-run health score history
+├── known-issues.json   # Cross-run known issues
+└── rules/*.md          # Team custom review rules
 ```
 
-## 架构
+<br/>
 
-| 组件 | 路径 | 说明 |
-|------|------|------|
-| 主编排器 | `skills/optcode/SKILL.md` | `/optcode` 入口 |
-| CR agent | `agents/agent-cr.md` | 审查 agent（opus） |
-| Fixer agent | `agents/agent-fixer.md` | 修复 agent（sonnet） |
-| 维度视角 | `dimensions/*.md` | 7 个维度的检查清单 |
-| 状态机 | `scripts/workflow-lib.js` | 原子写入、审计日志、停滞检测 |
-| 恢复点 | `scripts/orchestration-status.js` | 每轮判定 action |
-| 门检查 | `scripts/gate-check.js` | 产物后置条件验证 |
-| 质量门禁 | `scripts/quality-gate.js` | 质量评分（PASS/WARN/FAIL） |
+## Architecture
+
+| Component | Path | Description |
+|-----------|------|-------------|
+| Orchestrator | `skills/optcode/SKILL.md` | `/optcode` entry point, dispatches CR and fix loop |
+| CR Agent | `agents/agent-cr.md` | Review agent, reused per dimension perspective |
+| RCA Agent | `agents/agent-rca.md` | Root-cause analysis, clusters issues into principle-aligned strategy |
+| Fixer Agent | `agents/agent-fixer.md` | Fix agent, executes repairs based on RCA strategy or CR report |
+| Verifier Agent | `agents/agent-verifier.md` | Verification agent, validates fix correctness |
+| Regression Agent | `agents/agent-regression-check.md` | Regression check after fixes |
+| Dimensions | `dimensions/*.md` | 8 dimension checklists and rules |
+| State Machine | `scripts/workflow-lib.js` | Atomic writes, state R/W, audit log, stall detection |
+| Orchestration | `scripts/orchestration-status.js` | Per-round action determination |
+| Gate Check | `scripts/gate-check.js` | Artifact post-condition validation |
+| Quality Gate | `scripts/quality-gate.js` | Quality scoring (PASS/WARN/FAIL) |
+| Dashboard | `scripts/dashboard.js` | Quality score + trend + debt unified dashboard |
+| Rules Loader | `scripts/rules-loader.js` | Load `.optcode/rules/*.md` custom review rules |
+
+<br/>
+
+## Team Rules
+
+OptCode supports project-level custom review rules. Place Markdown files in `.optcode/rules/` of your target project:
+
+```
+.optcode/rules/
+├── naming.md           # Naming conventions
+├── error-handling.md   # Error handling standards
+└── api-design.md       # API design guidelines
+```
+
+Rules are automatically loaded and injected into the CR agent's review perspective.
+
+<br/>
+
+## Contributing
+
+If you plan to contribute significant changes, **open an issue first** to discuss direction and scope. We welcome bug reports, feature requests, and pull requests.
+
+<br/>
 
 ## License
 
-MIT
+Licensed under the [Apache License 2.0](./LICENSE).
+
+Copyright 2026 jxin
