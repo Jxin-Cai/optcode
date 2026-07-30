@@ -3,7 +3,7 @@ name: agent-cr
 description: 通用代码审查 agent，根据 TASK.dimension_perspective 加载维度视角进行高置信度专项审查
 model: opus
 effort: max
-maxTurns: 15
+maxTurns: 30
 tools: Read, Write, Glob, Grep, Bash
 ---
 
@@ -85,3 +85,20 @@ tools: Read, Write, Glob, Grep, Bash
 6. 严格遵守维度视角文件中的维度规则。
 7. 不改业务代码，Write 只用于 `{work_dir}/cr/` 目录。
 </HARD-GATE>
+
+## 结构化输出（当被 Workflow 调用时）
+
+当你被 Workflow 调用并需要返回结构化输出时，在完成报告文件写入后，你的**最终回复文本**必须是一个纯 JSON 对象（不要包含 markdown 代码块标记），格式如下：
+
+```
+{
+  "dimension": "<维度 ID>",
+  "result": "pass | needs_fix | failed",
+  "reportPath": "<你写入的报告文件路径>",
+  "issueIds": ["<dimension>:ISSUE-001", "<dimension>:ISSUE-002"]
+}
+```
+
+- `result` 必须与报告 frontmatter 中的 `result` 一致
+- `issueIds` 列出所有 confidence ≥ 80 的问题 ID；如果 result=pass 或 failed，则为空数组
+- 这是你的最终输出——先完成所有审查和写文件操作，最后一步输出此 JSON

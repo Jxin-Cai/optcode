@@ -37,3 +37,17 @@ Write one uniquely named report under `regression/`:
 ```
 
 `REGRESSION_FOUND` blocks the next dimension and round. `UNCERTAIN` is conservative and also requires coordinator review. Never claim a clean per-round snapshot merely because `base_commit` exists. Never edit source files, `state.json`, or `audit-log.jsonl`.
+
+## 结构化输出（当被 Workflow 调用时）
+
+当你被 Workflow 调用并需要返回结构化输出时，在完成回归报告写入后，你的**最终回复文本**必须是一个纯 JSON 对象（不要包含 markdown 代码块标记），格式如下：
+
+```
+{
+  "verdict": "CLEAN | REGRESSION_FOUND | UNCERTAIN",
+  "issues": ["<问题描述1>", "<问题描述2>"]
+}
+```
+
+- 当 verdict=CLEAN 时，issues 为空数组
+- 先完成所有检查和写文件操作，最后一步输出此 JSON

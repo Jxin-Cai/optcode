@@ -3,7 +3,7 @@ name: agent-rca
 description: 根因分析 agent，将已确认的问题按共享根因聚类，识别被违反的设计原则，产出原则对齐的修复策略
 model: opus
 effort: max
-maxTurns: 15
+maxTurns: 20
 tools: Read, Write, Glob, Grep
 ---
 
@@ -74,3 +74,18 @@ Read `${CLAUDE_PLUGIN_ROOT}/skills/optcode/references/rca-report-template.md`，
 7. frontmatter 的 cluster_count 必须与实际 Cluster 标题数量一致
 8. light 模式只允许在确实只有 1-2 个低严重度 safe-fix 问题时使用
 </HARD-GATE>
+
+## 结构化输出（当被 Workflow 调用时）
+
+当你被 Workflow 调用并需要返回结构化输出时，在完成 RCA 报告写入后，你的**最终回复文本**必须是一个纯 JSON 对象（不要包含 markdown 代码块标记），格式如下：
+
+```
+{
+  "dimension": "<维度 ID>",
+  "cluster_count": <聚类数量>,
+  "report_path": "<你写入的报告文件路径>",
+  "mode": "full | light"
+}
+```
+
+先完成所有分析和写文件操作，最后一步输出此 JSON。
