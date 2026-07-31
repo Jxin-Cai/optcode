@@ -123,15 +123,22 @@ If no CR reports exist or none have needs_fix, return empty arrays.`,
     activeDimensions = dimensions
   } else {
     const activation = await agent(
-      `Run node ${pluginRoot}/scripts/cr-activation-check.js ${workDir}. Return only the activated dimension names as JSON. Explicitly include design, maintainability, and dead-code unless the user skipped them.`,
+      `Run node ${pluginRoot}/scripts/cr-activation-check.js ${workDir}. Return the activated dimension names. Explicitly include design, maintainability, and dead-code unless the user skipped them.`,
       {
         label: 'activate',
         agentType: 'general-purpose',
         phase: 'Activate',
-        schema: { type: 'array', items: { type: 'string' } },
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            dimensions: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['dimensions'],
+        },
       },
     )
-    activeDimensions = activation ?? []
+    activeDimensions = activation?.dimensions ?? []
   }
   if (activeDimensions.length === 0) return { status: 'skipped', reason: 'no active dimensions' }
 
