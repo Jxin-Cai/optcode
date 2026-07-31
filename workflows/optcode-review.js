@@ -156,7 +156,7 @@ Each issue must contain file, symbol/line, concrete failure scenario, evidence, 
 Do not modify business code, state.json, or audit-log.jsonl.
 Targets: ${JSON.stringify(targetPaths)}
 Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindings ? `\nReport at most ${maxFindings} findings.` : ''}`,
-    { label: `cr:${dimension}`, agentType: 'agent-cr', phase: 'CR', schema: FINDING_SCHEMA },
+    { label: `cr:${dimension}`, agentType: 'optcode:agent-cr', phase: 'CR', schema: FINDING_SCHEMA },
   )))
 
   validCr = crResults.filter(Boolean)
@@ -182,7 +182,7 @@ Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindin
 if (mode === 'deep') {
   await agent(
     `Create a deep plan only. Use the gated CR reports in ${workDir}/cr and write ${workDir}/deep-plan.md. Include ordered fixes, dependencies, risk, validation commands, and rollback points. Do not modify business code. Then run node ${pluginRoot}/scripts/dimension-status.js ${workDir} --deep-plan-done.`,
-    { label: 'deep-plan', agentType: 'agent-cr', phase: 'Verify' },
+    { label: 'deep-plan', agentType: 'optcode:agent-cr', phase: 'Verify' },
   )
   // A deep plan is an execution checkpoint, not a terminal outcome. Continue
   // through verification and fixing so auto mode completes in one invocation.
@@ -196,7 +196,7 @@ const verification = budget.remaining() > 80000
 Read the referenced source and search for refuting evidence: indirect calls, framework conventions, public API use, tests, and configuration-driven behavior.
 Write one report to ${workDir}/verification/${finding.dimension}-${finding.issueId.replace(/[^A-Za-z0-9-]/g, '_')}.md.
 Do not modify business code or shared state. UNCERTAIN is conservative and must be retained.`,
-      { label: `verify:${finding.issueId}`, agentType: 'agent-verifier', phase: 'Verify', schema: VERDICT_SCHEMA },
+      { label: `verify:${finding.issueId}`, agentType: 'optcode:agent-verifier', phase: 'Verify', schema: VERDICT_SCHEMA },
     )))
   : null
 
@@ -252,7 +252,7 @@ Cluster these confirmed findings by shared root cause, identify violated design 
 Write the RCA report to ${workDir}/rca/${dimension}-round-1.md using the RCA template at ${pluginRoot}/skills/optcode/references/rca-report-template.md.
 If there are only 1-2 issues with severity=low and fix_risk=safe, use mode=light (minimal single-cluster analysis).
 Do not modify business code.`,
-      { label: `rca:${dimension}`, agentType: 'agent-rca', phase: 'RCA', schema: RCA_SCHEMA },
+      { label: `rca:${dimension}`, agentType: 'optcode:agent-rca', phase: 'RCA', schema: RCA_SCHEMA },
     )
   }))
 
@@ -296,7 +296,7 @@ Read the matching CR report(s).${rcaContext}
 Before editing, record the current git diff for this run against ${baseCommit}.
 Modify only files and symbols justified by these findings. Do not change public APIs or unrelated files.
 Write ${workDir}/fix/${dimension}-round-1.md with changed files, diff summary, tests run, exit codes, and unresolved concerns.`,
-    { label: `fix:${dimension}`, agentType: 'agent-fixer', phase: 'Fix' },
+    { label: `fix:${dimension}`, agentType: 'optcode:agent-fixer', phase: 'Fix' },
   )
 
   const regression = await agent(
@@ -304,7 +304,7 @@ Write ${workDir}/fix/${dimension}-round-1.md with changed files, diff summary, t
 Read ${workDir}/fix/${dimension}-round-1.md and inspect the actual diff against the pre-fix snapshot recorded in that report.
 Run the exact tests/typecheck/build commands listed there. Write ${workDir}/regression/${dimension}-round-1.md.
 Return CLEAN only when the diff is in scope, commands pass, and no behavioral regression is found.`,
-    { label: `regression:${dimension}`, agentType: 'agent-regression-check', phase: 'Fix', schema: REGRESSION_SCHEMA },
+    { label: `regression:${dimension}`, agentType: 'optcode:agent-regression-check', phase: 'Fix', schema: REGRESSION_SCHEMA },
   )
   if (!regression || regression.verdict !== 'CLEAN') {
     fixResults.push({ dimension, status: 'blocked', regression: regression?.verdict ?? 'UNCERTAIN' })
