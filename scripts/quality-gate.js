@@ -21,6 +21,8 @@ const VERDICT_THRESHOLDS = {
   WARN: 50
 };
 
+const LOW_SCORE_FINDING_THRESHOLD = 70;
+
 function getLastFixStatus(workDir, dimension) {
   const fixDir = join(workDir, 'fix');
   if (!existsSync(fixDir)) return null;
@@ -111,6 +113,18 @@ function main() {
 
   totalScore = Math.round(totalScore * 10) / 10;
 
+  // Score-Finding consistency: if a dimension scored below threshold, it must have linked findings
+  const scoreConsistencyWarnings = [];
+  for (const dim of activeDimensions) {
+    const dimScore = breakdown[dim].score;
+    const normalizedScore = baseScore > 0 ? (dimScore / baseScore) * 100 : 0;
+    if (normalizedScore < LOW_SCORE_FINDING_THRESHOLD && breakdown[dim].issues_found === 0) {
+      scoreConsistencyWarnings.push(
+        `${dim}: score ${Math.round(normalizedScore)}% < ${LOW_SCORE_FINDING_THRESHOLD}% but no findings linked`
+      );
+    }
+  }
+
   let verdict;
   if (incomplete || activeDimensions.length === 0) {
     verdict = 'FAIL';
@@ -130,6 +144,7 @@ function main() {
     active_dimensions: activeDimensions.length,
     skipped_dimensions: DIMENSIONS.length - activeDimensions.length,
     incomplete,
+    score_finding_consistency: scoreConsistencyWarnings.length === 0 ? 'OK' : scoreConsistencyWarnings,
     breakdown
   };
 

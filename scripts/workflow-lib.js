@@ -70,13 +70,37 @@ function readState(workDir) {
   return JSON.parse(readFileSync(file, 'utf8'));
 }
 
-function writeState(workDir, state) {
+function writeState(workDir, state, expectedSeq) {
   ensureDir(workDir);
+  if (expectedSeq !== undefined) {
+    const current = readState(workDir);
+    const currentSeq = current ? (current._seq || 0) : 0;
+    if (currentSeq !== expectedSeq) {
+      throw new Error(`OCC conflict: expected _seq=${expectedSeq}, got ${currentSeq}`);
+    }
+  }
+  state._seq = (state._seq || 0) + 1;
   state.updated_at = new Date().toISOString();
   const file = stateFile(workDir);
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n');
   renameSync(tmp, file);
+}
+
+function writeStateWithRetry(workDir, mutator, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const state = readState(workDir);
+    if (!state) throw new Error('state not initialized');
+    const expectedSeq = state._seq || 0;
+    mutator(state);
+    try {
+      writeState(workDir, state, expectedSeq);
+      return state;
+    } catch (e) {
+      if (e.message.startsWith('OCC conflict') && attempt < maxRetries - 1) continue;
+      throw e;
+    }
+  }
 }
 
 function appendAudit(workDir, entry) {
@@ -540,6 +564,7 @@ module.exports = {
   auditLogFile,
   readState,
   writeState,
+  writeStateWithRetry,
   appendAudit,
   normalizeMode,
   initState,

@@ -30,7 +30,7 @@ Use:
 # Verification Report
 
 - Finding: ISSUE-1
-- Verdict: CONFIRMED|FALSE_POSITIVE|UNCERTAIN
+- Verdict: TRUE_POSITIVE|FALSE_POSITIVE|UNCERTAIN
 - CR report: cr/<file>
 - Scope: files and symbols inspected
 - Evidence: concrete observations or reproduction steps

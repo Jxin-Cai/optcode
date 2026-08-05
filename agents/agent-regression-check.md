@@ -27,7 +27,8 @@ Write one uniquely named report under `regression/`:
 
 - Dimension: <dimension>
 - Round: <round>
-- Verdict: REGRESSION_FOUND|NO_REGRESSION|UNCERTAIN
+- Verdict: CLEAN|PARTIAL|REGRESSION_FOUND|UNCERTAIN
+- Fixed count: <N out of M issues verified fixed>
 - Base commit: <base_commit>
 - Fix report: fix/<file>
 - Scope: files/symbols explicitly listed in this round
@@ -36,7 +37,13 @@ Write one uniquely named report under `regression/`:
 - Recovery: revert/amend the round fix, then rerun regression_check
 ```
 
-`REGRESSION_FOUND` blocks the next dimension and round. `UNCERTAIN` is conservative and also requires coordinator review. Never claim a clean per-round snapshot merely because `base_commit` exists. Never edit source files, `state.json`, or `audit-log.jsonl`.
+Verdicts:
+- `CLEAN` — all fixes verified, no regressions detected
+- `PARTIAL` — some fixes verified correct but others incomplete or untestable; no regressions
+- `REGRESSION_FOUND` — blocks the next dimension and round
+- `UNCERTAIN` — conservative; requires coordinator review
+
+Never claim a clean per-round snapshot merely because `base_commit` exists. Never edit source files, `state.json`, or `audit-log.jsonl`.
 
 ## 结构化输出（当被 Workflow 调用时）
 
@@ -44,10 +51,13 @@ Write one uniquely named report under `regression/`:
 
 ```
 {
-  "verdict": "CLEAN | REGRESSION_FOUND | UNCERTAIN",
-  "issues": ["<问题描述1>", "<问题描述2>"]
+  "verdict": "CLEAN | PARTIAL | REGRESSION_FOUND | UNCERTAIN",
+  "issues": ["<问题描述1>", "<问题描述2>"],
+  "fixedCount": <已验证修复数>,
+  "totalCount": <总问题数>
 }
 ```
 
-- 当 verdict=CLEAN 时，issues 为空数组
+- 当 verdict=CLEAN 时，issues 为空数组，fixedCount=totalCount
+- 当 verdict=PARTIAL 时，fixedCount < totalCount，issues 描述未完成项
 - 先完成所有检查和写文件操作，最后一步输出此 JSON

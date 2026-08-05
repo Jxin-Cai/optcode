@@ -39,8 +39,10 @@ const REGRESSION_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    verdict: { type: 'string', enum: ['CLEAN', 'REGRESSION_FOUND', 'UNCERTAIN'] },
+    verdict: { type: 'string', enum: ['CLEAN', 'PARTIAL', 'REGRESSION_FOUND', 'UNCERTAIN'] },
     issues: { type: 'array', items: { type: 'string' } },
+    fixedCount: { type: 'integer' },
+    totalCount: { type: 'integer' },
   },
   required: ['verdict'],
 }
@@ -149,10 +151,23 @@ If no CR reports exist or none have needs_fix, return empty arrays.`,
 
   const crResults = await parallel(activeDimensions.map((dimension) => () => agent(
     `Run coverage-first read-only CR for dimension ${dimension}.
+
+## Information boundary (STRICT)
+- CAN read: ${pluginRoot}/dimensions/${dimension}.md, ${workDir}/file-inventory.md, target files listed below
+- CANNOT read: other dimension files (${activeDimensions.filter(d => d !== dimension).join(', ')}), other CR reports, state.json, audit-log.jsonl
+- CANNOT write: anything outside ${workDir}/cr/${dimension}-round-1.md
+
+## Evidence strength ceiling
+- verification=read → max confidence 74
+- verification=grep/static-analysis → max confidence 84
+- verification=test/typecheck/build → max confidence 94
+- verification=runtime/reproduction → max confidence 100
+
+## Task
 Read ${pluginRoot}/dimensions/${dimension}.md and ${workDir}/file-inventory.md, then inspect every applicable target file.
 Write exactly one report to ${workDir}/cr/${dimension}-round-1.md using the repository CR template.
 Every issue ID MUST be globally unique and use ${dimension}:ISSUE-001, ${dimension}:ISSUE-002, etc.
-Each issue must contain file, symbol/line, concrete failure scenario, evidence, severity, confidence, and fix risk.
+Each issue must contain file, symbol/line, concrete failure scenario, evidence, severity, confidence (capped by evidence ceiling), and fix risk.
 Do not modify business code, state.json, or audit-log.jsonl.
 Targets: ${JSON.stringify(targetPaths)}
 Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindings ? `\nReport at most ${maxFindings} findings.` : ''}`,
@@ -161,16 +176,36 @@ Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindin
 
   validCr = crResults.filter(Boolean)
   const needsFix = validCr.filter((result) => result.result === 'needs_fix')
-  findings = needsFix.flatMap((result) => (result.issueIds ?? []).map((issueId) => ({
+  let rawFindings = needsFix.flatMap((result) => (result.issueIds ?? []).map((issueId) => ({
     issueId,
     dimension: result.dimension,
     reportPath: result.reportPath,
   })))
+
+  // Cross-dimension deduplication: same target + same consequence + same repair → merge
+  if (rawFindings.length > 1) {
+    const dedup = await agent(
+      `Run node ${pluginRoot}/scripts/cross-dimension-dedup.js ${workDir}. Return the deduplicated_ids array and removed_count.`,
+      { label: 'dedup', phase: 'CR', schema: { type: 'object', properties: { deduplicated_ids: { type: 'array', items: { type: 'string' } }, removed_count: { type: 'integer' } }, required: ['deduplicated_ids', 'removed_count'] } },
+    )
+    if (dedup && dedup.removed_count > 0) {
+      const kept = new Set(dedup.deduplicated_ids)
+      rawFindings = rawFindings.filter((f) => kept.has(f.issueId))
+      log(`dedup: removed ${dedup.removed_count} cross-dimension duplicates`)
+    }
+  }
+  findings = rawFindings
   log(`CR barrier complete: ${validCr.length} reports, ${findings.length} findings`)
 
   await agent(
     `Run node ${pluginRoot}/scripts/known-issues.js sync ${workDir}. This persists new findings to .optcode/known-issues.json.`,
     { label: 'sync-issues', phase: 'CR' },
+  )
+
+  // Capture context freeze after CR for drift detection before Fix
+  await agent(
+    `Run node ${pluginRoot}/scripts/context-freeze.js capture ${workDir}. This snapshots target file hashes for pre-fix drift detection.`,
+    { label: 'context-freeze', phase: 'CR' },
   )
 
   await agent(
@@ -193,6 +228,13 @@ if (findings.length === 0) return { status: 'pass', dimensions: validCr, workDir
 const verification = budget.remaining() > 80000
   ? await parallel(findings.map((finding) => () => agent(
       `Independently verify only ${finding.issueId} in ${finding.reportPath}.
+
+## Information boundary (STRICT)
+- CAN read: ${finding.reportPath} (only the ${finding.issueId} section), target source files referenced by the finding
+- CANNOT read: other CR reports, other findings, state.json, audit-log.jsonl, fix reports
+- CANNOT write: anything outside ${workDir}/verification/${finding.dimension}-${finding.issueId.replace(/[^A-Za-z0-9-]/g, '_')}.md
+
+## Task
 Read the referenced source and search for refuting evidence: indirect calls, framework conventions, public API use, tests, and configuration-driven behavior.
 Write one report to ${workDir}/verification/${finding.dimension}-${finding.issueId.replace(/[^A-Za-z0-9-]/g, '_')}.md.
 Do not modify business code or shared state. UNCERTAIN is conservative and must be retained.`,
@@ -276,6 +318,15 @@ Do not modify business code.`,
   log('budget below RCA threshold; fixer will use CR reports directly')
 }
 
+// --- Pre-fix drift check ---
+const drift = await agent(
+  `Run node ${pluginRoot}/scripts/context-freeze.js verify ${workDir}. Return the JSON output. If drifted=true, list the changed files.`,
+  { label: 'drift-check', phase: 'Fix', schema: { type: 'object', properties: { drifted: { type: 'boolean' }, drift_count: { type: 'integer' } }, required: ['drifted'] } },
+)
+if (drift && drift.drifted) {
+  log(`WARNING: ${drift.drift_count} file(s) drifted since CR — fixes may be based on stale context`)
+}
+
 // --- Fix Phase ---
 phase('Fix')
 const fixResults = []
@@ -306,11 +357,17 @@ Run the exact tests/typecheck/build commands listed there. Write ${workDir}/regr
 Return CLEAN only when the diff is in scope, commands pass, and no behavioral regression is found.`,
     { label: `regression:${dimension}`, agentType: 'optcode:agent-regression-check', phase: 'Fix', schema: REGRESSION_SCHEMA },
   )
-  if (!regression || regression.verdict !== 'CLEAN') {
+  if (!regression || regression.verdict === 'REGRESSION_FOUND') {
     fixResults.push({ dimension, status: 'blocked', regression: regression?.verdict ?? 'UNCERTAIN' })
     break
   }
-  fixResults.push({ dimension, status: 'fixed', fix: Boolean(fix) })
+  if (regression.verdict === 'PARTIAL') {
+    fixResults.push({ dimension, status: 'partial', regression: 'PARTIAL', fixedCount: regression.fixedCount, totalCount: regression.totalCount })
+  } else if (regression.verdict === 'UNCERTAIN') {
+    fixResults.push({ dimension, status: 'needs_review', regression: 'UNCERTAIN' })
+  } else {
+    fixResults.push({ dimension, status: 'fixed', fix: Boolean(fix) })
+  }
 }
 
 return {

@@ -15,6 +15,29 @@ const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { readState, readFrontmatter, appendAudit, FIX_STATUSES } = require('./workflow-lib.js');
 
+const PRIVACY_PATTERNS = [
+  { pattern: /\/Users\/[^\s/]+/g, label: 'absolute macOS path' },
+  { pattern: /\/home\/[^\s/]+/g, label: 'absolute Linux path' },
+  { pattern: /C:\\Users\\[^\s\\]+/g, label: 'absolute Windows path' },
+  { pattern: /session[_-]?id\s*[:=]\s*["']?[a-f0-9-]{8,}/gi, label: 'session ID' },
+  { pattern: /sk-[a-zA-Z0-9]{20,}/g, label: 'API secret key' },
+  { pattern: /ghp_[a-zA-Z0-9]{36,}/g, label: 'GitHub PAT' },
+  { pattern: /Bearer\s+[a-zA-Z0-9._-]{20,}/gi, label: 'bearer token' },
+  { pattern: /password\s*[:=]\s*["'][^"']{4,}["']/gi, label: 'embedded password' },
+  { pattern: /api[_-]?key\s*[:=]\s*["'][^"']{8,}["']/gi, label: 'API key literal' },
+];
+
+function checkPrivacy(text) {
+  const violations = [];
+  for (const { pattern, label } of PRIVACY_PATTERNS) {
+    const matches = text.match(pattern);
+    if (matches) {
+      violations.push(`${label}: "${matches[0].slice(0, 40)}${matches[0].length > 40 ? '...' : ''}"`);
+    }
+  }
+  return violations;
+}
+
 function result(gate, pass, reason = '') {
   return { pass, gate, reason };
 }
@@ -136,6 +159,8 @@ function checkGate(workDir, gateId) {
     const reportPath = candidates.find(existsSync);
     if (!reportPath) return result(gateId, false, `CR report missing: ${dimension}-round-${round}.md`);
     const text = readFileSync(reportPath, 'utf8');
+    const privacyViolations = checkPrivacy(text);
+    if (privacyViolations.length > 0) return result(gateId, false, `privacy violation: ${privacyViolations[0]}`);
     const error = validateCrReport(text);
     if (error) return result(gateId, false, error);
     return result(gateId, true);
@@ -149,6 +174,8 @@ function checkGate(workDir, gateId) {
     const fixFile = join(workDir, 'fix', `${dimension}-round-${round}-fix.md`);
     if (!existsSync(fixFile)) return result(gateId, false, `Fix report missing: ${dimension}-round-${round}-fix.md`);
     const text = readFileSync(fixFile, 'utf8');
+    const fixPrivacy = checkPrivacy(text);
+    if (fixPrivacy.length > 0) return result(gateId, false, `privacy violation in fix report: ${fixPrivacy[0]}`);
     const fm = readFrontmatter(text);
     if (!fm.result) return result(gateId, false, 'Fix report missing result in frontmatter');
     if (!['success', 'fixed', 'partial', 'failed'].includes(fm.result)) return result(gateId, false, `invalid fix result: ${fm.result}`);

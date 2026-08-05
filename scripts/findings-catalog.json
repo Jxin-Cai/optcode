@@ -1,0 +1,240 @@
+{
+  "_meta": {
+    "version": 1,
+    "description": "Pre-authored finding templates with canonical IDs, bilingual titles, default severity, and fix labels."
+  },
+  "findings": {
+    "dead-code:unused-export": {
+      "id": "dead-code:unused-export",
+      "aliases": ["unused-export", "dead-export"],
+      "title": { "zh": "未使用的导出", "en": "Unused export" },
+      "recommendation": { "zh": "移除未被引用的导出符号", "en": "Remove unreferenced export symbols" },
+      "severity": "low",
+      "timing": "immediate",
+      "impact": "maintainability",
+      "passCheck": "No unreferenced exports remain in target files",
+      "aiFixLabel": "Remove unused export"
+    },
+    "dead-code:unreachable-branch": {
+      "id": "dead-code:unreachable-branch",
+      "aliases": ["unreachable-code", "dead-branch"],
+      "title": { "zh": "不可达分支", "en": "Unreachable branch" },
+      "recommendation": { "zh": "删除逻辑上永远不会执行的条件分支", "en": "Remove logically unreachable conditional branches" },
+      "severity": "medium",
+      "timing": "immediate",
+      "impact": "correctness",
+      "passCheck": "All conditional branches are reachable under valid inputs",
+      "aiFixLabel": "Remove dead branch"
+    },
+    "dead-code:unused-variable": {
+      "id": "dead-code:unused-variable",
+      "aliases": ["unused-var", "dead-var"],
+      "title": { "zh": "未使用的变量", "en": "Unused variable" },
+      "recommendation": { "zh": "移除声明后未被读取的变量", "en": "Remove variables that are declared but never read" },
+      "severity": "low",
+      "timing": "immediate",
+      "impact": "maintainability",
+      "passCheck": "No unused variables remain in target scope",
+      "aiFixLabel": "Remove unused variable"
+    },
+    "duplication:clone-block": {
+      "id": "duplication:clone-block",
+      "aliases": ["code-clone", "duplicated-block"],
+      "title": { "zh": "克隆代码块", "en": "Cloned code block" },
+      "recommendation": { "zh": "提取公共逻辑为共享函数或模块", "en": "Extract shared logic into a common function or module" },
+      "severity": "medium",
+      "timing": "next-sprint",
+      "impact": "maintainability",
+      "passCheck": "Duplicated logic is consolidated into a single source of truth",
+      "aiFixLabel": "Extract shared function"
+    },
+    "duplication:repeated-pattern": {
+      "id": "duplication:repeated-pattern",
+      "aliases": ["pattern-dup", "structural-dup"],
+      "title": { "zh": "重复模式", "en": "Repeated structural pattern" },
+      "recommendation": { "zh": "抽象重复的结构模式为通用模板或高阶函数", "en": "Abstract repeated structural patterns into a generic template or HOF" },
+      "severity": "low",
+      "timing": "next-sprint",
+      "impact": "maintainability",
+      "passCheck": "Pattern appears at most once, parameterized for variants",
+      "aiFixLabel": "Abstract pattern"
+    },
+    "concurrency:race-condition": {
+      "id": "concurrency:race-condition",
+      "aliases": ["race", "data-race"],
+      "title": { "zh": "竞态条件", "en": "Race condition" },
+      "recommendation": { "zh": "使用原子操作、锁或序列化确保共享状态一致性", "en": "Use atomic operations, locks, or serialization to ensure shared state consistency" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "correctness",
+      "passCheck": "Concurrent access to shared state is serialized or atomic",
+      "aiFixLabel": "Fix race condition"
+    },
+    "concurrency:missing-await": {
+      "id": "concurrency:missing-await",
+      "aliases": ["unawaited-promise", "floating-promise"],
+      "title": { "zh": "缺少 await", "en": "Missing await" },
+      "recommendation": { "zh": "为异步调用添加 await 或正确处理 Promise 链", "en": "Add await to async calls or properly handle the Promise chain" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "correctness",
+      "passCheck": "All async return values are awaited or explicitly handled",
+      "aiFixLabel": "Add missing await"
+    },
+    "concurrency:unhandled-rejection": {
+      "id": "concurrency:unhandled-rejection",
+      "aliases": ["missing-catch", "swallowed-error"],
+      "title": { "zh": "未处理的 Promise 拒绝", "en": "Unhandled Promise rejection" },
+      "recommendation": { "zh": "添加 .catch() 或 try/catch 处理可能的拒绝", "en": "Add .catch() or try/catch to handle potential rejections" },
+      "severity": "medium",
+      "timing": "immediate",
+      "impact": "reliability",
+      "passCheck": "All Promise chains have rejection handlers",
+      "aiFixLabel": "Add error handler"
+    },
+    "design:god-function": {
+      "id": "design:god-function",
+      "aliases": ["long-function", "bloated-function"],
+      "title": { "zh": "上帝函数", "en": "God function" },
+      "recommendation": { "zh": "将职责分离为更小的单一职责函数", "en": "Split responsibilities into smaller single-responsibility functions" },
+      "severity": "medium",
+      "timing": "next-sprint",
+      "impact": "maintainability",
+      "passCheck": "Function does one thing at one level of abstraction",
+      "aiFixLabel": "Split function"
+    },
+    "design:missing-abstraction": {
+      "id": "design:missing-abstraction",
+      "aliases": ["primitive-obsession", "no-abstraction"],
+      "title": { "zh": "缺失的抽象层", "en": "Missing abstraction" },
+      "recommendation": { "zh": "引入有意义的中间抽象以隐藏实现细节", "en": "Introduce a meaningful intermediate abstraction to hide implementation details" },
+      "severity": "medium",
+      "timing": "next-sprint",
+      "impact": "design",
+      "passCheck": "Consumers depend on abstraction, not implementation",
+      "aiFixLabel": "Introduce abstraction"
+    },
+    "design:tight-coupling": {
+      "id": "design:tight-coupling",
+      "aliases": ["high-coupling", "dependency-magnet"],
+      "title": { "zh": "紧耦合", "en": "Tight coupling" },
+      "recommendation": { "zh": "通过接口或依赖注入降低模块间耦合", "en": "Reduce coupling via interfaces or dependency injection" },
+      "severity": "medium",
+      "timing": "next-sprint",
+      "impact": "design",
+      "passCheck": "Module depends on abstractions, not concrete implementations",
+      "aiFixLabel": "Decouple modules"
+    },
+    "security:injection-risk": {
+      "id": "security:injection-risk",
+      "aliases": ["sql-injection", "command-injection", "xss"],
+      "title": { "zh": "注入风险", "en": "Injection risk" },
+      "recommendation": { "zh": "使用参数化查询、转义或白名单验证用户输入", "en": "Use parameterized queries, escaping, or allowlist validation for user input" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "security",
+      "passCheck": "All user-controlled data is sanitized before reaching sinks",
+      "aiFixLabel": "Sanitize input"
+    },
+    "security:hardcoded-secret": {
+      "id": "security:hardcoded-secret",
+      "aliases": ["leaked-secret", "embedded-credential"],
+      "title": { "zh": "硬编码密钥", "en": "Hardcoded secret" },
+      "recommendation": { "zh": "将密钥移至环境变量或密钥管理服务", "en": "Move secrets to environment variables or a secrets manager" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "security",
+      "passCheck": "No secrets appear in source code",
+      "aiFixLabel": "Externalize secret"
+    },
+    "security:insecure-default": {
+      "id": "security:insecure-default",
+      "aliases": ["weak-default", "permissive-config"],
+      "title": { "zh": "不安全的默认配置", "en": "Insecure default" },
+      "recommendation": { "zh": "将默认设置改为最小权限/最严格安全配置", "en": "Change defaults to least-privilege / strictest secure configuration" },
+      "severity": "medium",
+      "timing": "immediate",
+      "impact": "security",
+      "passCheck": "Default configuration follows principle of least privilege",
+      "aiFixLabel": "Harden default"
+    },
+    "maintainability:magic-number": {
+      "id": "maintainability:magic-number",
+      "aliases": ["magic-constant", "unexplained-literal"],
+      "title": { "zh": "魔法数字", "en": "Magic number" },
+      "recommendation": { "zh": "将字面量提取为命名常量", "en": "Extract literals into named constants" },
+      "severity": "low",
+      "timing": "next-sprint",
+      "impact": "maintainability",
+      "passCheck": "All domain-significant literals are named constants",
+      "aiFixLabel": "Extract constant"
+    },
+    "maintainability:missing-error-context": {
+      "id": "maintainability:missing-error-context",
+      "aliases": ["bare-throw", "context-free-error"],
+      "title": { "zh": "缺少错误上下文", "en": "Missing error context" },
+      "recommendation": { "zh": "在抛出或传播错误时附加操作上下文信息", "en": "Attach operation context when throwing or propagating errors" },
+      "severity": "low",
+      "timing": "next-sprint",
+      "impact": "observability",
+      "passCheck": "Errors carry enough context to diagnose without reproducing",
+      "aiFixLabel": "Add error context"
+    },
+    "style:inconsistent-naming": {
+      "id": "style:inconsistent-naming",
+      "aliases": ["naming-mismatch", "case-inconsistency"],
+      "title": { "zh": "命名不一致", "en": "Inconsistent naming" },
+      "recommendation": { "zh": "统一命名风格以匹配项目约定", "en": "Unify naming style to match project conventions" },
+      "severity": "low",
+      "timing": "next-sprint",
+      "impact": "readability",
+      "passCheck": "All symbols follow the project's naming convention",
+      "aiFixLabel": "Fix naming"
+    },
+    "legacy-safety:deprecated-api": {
+      "id": "legacy-safety:deprecated-api",
+      "aliases": ["deprecated-usage", "obsolete-api"],
+      "title": { "zh": "使用已废弃 API", "en": "Deprecated API usage" },
+      "recommendation": { "zh": "迁移到推荐的替代 API", "en": "Migrate to the recommended replacement API" },
+      "severity": "medium",
+      "timing": "next-sprint",
+      "impact": "reliability",
+      "passCheck": "No deprecated API calls remain in target files",
+      "aiFixLabel": "Migrate API"
+    },
+    "ai-sdd-smells:hallucinated-api": {
+      "id": "ai-sdd-smells:hallucinated-api",
+      "aliases": ["nonexistent-api", "phantom-method"],
+      "title": { "zh": "AI 幻觉 API 调用", "en": "Hallucinated API call" },
+      "recommendation": { "zh": "验证 API 在目标库版本中确实存在，替换为正确方法", "en": "Verify the API exists in the target library version; replace with the correct method" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "correctness",
+      "passCheck": "All API calls resolve to real methods in declared dependencies",
+      "aiFixLabel": "Fix hallucinated API"
+    },
+    "ai-sdd-smells:over-engineering": {
+      "id": "ai-sdd-smells:over-engineering",
+      "aliases": ["premature-abstraction", "ai-bloat"],
+      "title": { "zh": "过度工程化", "en": "Over-engineering" },
+      "recommendation": { "zh": "简化为当前需求所需的最简实现", "en": "Simplify to the minimal implementation required by current needs" },
+      "severity": "medium",
+      "timing": "immediate",
+      "impact": "maintainability",
+      "passCheck": "Implementation complexity matches requirement complexity",
+      "aiFixLabel": "Simplify"
+    },
+    "ai-sdd-smells:incomplete-implementation": {
+      "id": "ai-sdd-smells:incomplete-implementation",
+      "aliases": ["todo-left", "stub-remaining"],
+      "title": { "zh": "不完整的实现", "en": "Incomplete implementation" },
+      "recommendation": { "zh": "完成遗留的 TODO/FIXME 或存根实现", "en": "Complete remaining TODO/FIXME or stub implementations" },
+      "severity": "high",
+      "timing": "immediate",
+      "impact": "correctness",
+      "passCheck": "No TODO/FIXME/stub implementations remain in committed code",
+      "aiFixLabel": "Complete implementation"
+    }
+  },
+  "aliasIndex": {}
+}
