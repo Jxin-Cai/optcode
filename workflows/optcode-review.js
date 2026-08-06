@@ -207,10 +207,10 @@ Known issues (do not re-report deferred items): ${knownCtx || 'none'}${maxFindin
     { label: 'sync-issues', phase: 'CR' },
   )
 
-  // Capture context freeze after CR for drift detection before Fix
+  // Freeze immutable evidence bundle — all subsequent agents reference this frozen context
   await agent(
-    `Run node ${pluginRoot}/scripts/context-freeze.js capture ${workDir}. This snapshots target file hashes for pre-fix drift detection.`,
-    { label: 'context-freeze', phase: 'CR' },
+    `Run node ${pluginRoot}/scripts/evidence-bundle.js freeze ${workDir}. This creates an immutable evidence bundle capturing workspace state (file hashes, git HEAD, active dimensions) before any fixes. Return the JSON output.`,
+    { label: 'evidence-bundle-freeze', phase: 'CR' },
   )
 
   // --- Quality gates: report-quality (8 gates) + evidence-strength ceiling ---
@@ -246,16 +246,57 @@ Return a JSON object with:
   const qualityFailed = (qualityResults || []).filter(Boolean).filter(r => !r.overallPass)
   if (qualityFailed.length > 0) {
     log(`quality gates rejected ${qualityFailed.length} report(s): ${qualityFailed.map(r => `${r.dimension}(q:${r.qualityViolations || 0},e:${r.evidenceViolations || 0})`).join(', ')}`)
-    // Downgrade rejected dimensions: remove their findings from the pipeline
     const rejectedDims = new Set(qualityFailed.map(r => r.dimension))
     findings = findings.filter(f => !rejectedDims.has(f.dimension))
     validCr = validCr.map(cr => rejectedDims.has(cr.dimension) ? { ...cr, result: 'failed', failReason: 'quality_gate_rejected' } : cr)
+  }
+
+  // Synthetic evidence detection: catch fabricated file/symbol references
+  const syntheticChecks = await parallel(validCr.filter(r => r.result === 'needs_fix').map((cr) => () => agent(
+    `Run node ${pluginRoot}/scripts/synthetic-evidence.js ${cr.reportPath} --base-dir ${targetPaths[0] || '.'} --json. Return the JSON output.`,
+    {
+      label: `synthetic-check:${cr.dimension}`,
+      phase: 'CR',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          dimension: { type: 'string' },
+          valid: { type: 'boolean' },
+          violation_count: { type: 'integer' },
+          violations: { type: 'array', items: { type: 'object' } },
+        },
+        required: ['valid'],
+      },
+    },
+  )))
+  const syntheticFailed = (syntheticChecks || []).filter(Boolean).filter(r => !r.valid)
+  if (syntheticFailed.length > 0) {
+    log(`⚠ synthetic evidence detected in ${syntheticFailed.length} report(s) — flagging fabricated references`)
   }
 
   await agent(
     `Act as the sole CR barrier coordinator. In ${workDir}, verify every report exists, run gate-check.js for each report, and record each result with dimension-status.js --cr-done. Do these shared-state writes serially. Do not modify business code. Base commit: ${baseCommit}. Results: ${JSON.stringify(validCr)}`,
     { label: 'cr-barrier', agentType: 'general-purpose', phase: 'CR' },
   )
+
+  // Score-Finding bidirectional consistency + population binding (parallel)
+  const [consistency, popBinding] = await parallel([
+    () => agent(
+      `Run node ${pluginRoot}/scripts/score-finding-consistency.js ${workDir} --json. Return the JSON output as-is.`,
+      { label: 'score-finding-consistency', phase: 'CR', schema: { type: 'object', properties: { valid: { type: 'boolean' }, violation_count: { type: 'integer' }, violations: { type: 'array' } }, required: ['valid'] } },
+    ),
+    () => agent(
+      `Run node ${pluginRoot}/scripts/population-binding.js ${workDir} --json. Return the JSON output as-is.`,
+      { label: 'population-binding', phase: 'CR', schema: { type: 'object', properties: { valid: { type: 'boolean' }, violation_count: { type: 'integer' }, violations: { type: 'array' } }, required: ['valid'] } },
+    ),
+  ])
+  if (consistency && !consistency.valid) {
+    log(`⚠ score-finding consistency: ${consistency.violation_count} violation(s) — ${(consistency.violations || []).map(v => v.message).slice(0, 3).join('; ')}`)
+  }
+  if (popBinding && !popBinding.valid) {
+    log(`⚠ population binding: ${popBinding.violation_count} violation(s) — ${(popBinding.violations || []).map(v => v.message).slice(0, 3).join('; ')}`)
+  }
 }
 
 if (mode === 'deep') {
@@ -362,13 +403,13 @@ Do not modify business code.`,
   log('budget below RCA threshold; fixer will use CR reports directly')
 }
 
-// --- Pre-fix drift check ---
-const drift = await agent(
-  `Run node ${pluginRoot}/scripts/context-freeze.js verify ${workDir}. Return the JSON output. If drifted=true, list the changed files.`,
-  { label: 'drift-check', phase: 'Fix', schema: { type: 'object', properties: { drifted: { type: 'boolean' }, drift_count: { type: 'integer' } }, required: ['drifted'] } },
+// --- Pre-fix: validate evidence bundle integrity (replaces context-freeze verify) ---
+const bundleCheck = await agent(
+  `Run node ${pluginRoot}/scripts/evidence-bundle.js validate ${workDir}. Return the JSON output. If valid=false, list the violations.`,
+  { label: 'bundle-validate', phase: 'Fix', schema: { type: 'object', properties: { valid: { type: 'boolean' }, violation_count: { type: 'integer' }, violations: { type: 'array', items: { type: 'object' } } }, required: ['valid'] } },
 )
-if (drift && drift.drifted) {
-  log(`WARNING: ${drift.drift_count} file(s) drifted since CR — fixes may be based on stale context`)
+if (bundleCheck && !bundleCheck.valid) {
+  log(`WARNING: evidence bundle integrity violated (${bundleCheck.violation_count} issues) — fixes may be based on stale context`)
 }
 
 // --- Pre-fix blast radius estimation ---
@@ -381,6 +422,12 @@ if (blastRadius && blastRadius.shouldBlock) {
   return { status: 'blocked_by_blast_radius', blastRadius, dimensions: validCr, findings, confirmed, workDir }
 }
 if (blastRadius) log(`blast radius: ${blastRadius.score}/100 (${blastRadius.severity}), fan-in=${blastRadius.directFanIn}`)
+
+// --- Initialize per-finding contracts for precise tracking ---
+await agent(
+  `Run node ${pluginRoot}/scripts/finding-contract.js init ${workDir}. This creates per-finding repair contracts from confirmed findings.`,
+  { label: 'init-contracts', phase: 'Fix' },
+)
 
 // --- Fix Phase (multi-round: re-review → re-fix, max 3 rounds per dimension) ---
 phase('Fix')
@@ -512,6 +559,15 @@ List only issue IDs that are still unresolved. Return them as issueIds array.`,
   if (finalStatus?.status === 'blocked') break
 }
 
+// --- Post-fix: loop discovery analysis ---
+const loopAnalysis = await agent(
+  `Run node ${pluginRoot}/scripts/loop-discovery.js analyze --json. Return the JSON output. If candidates > 0, list them.`,
+  { label: 'loop-discovery', phase: 'Fix', schema: { type: 'object', properties: { analyzed: { type: 'integer' }, candidates: { type: 'integer' }, recommendations: { type: 'array' } }, required: ['candidates'] } },
+)
+if (loopAnalysis && loopAnalysis.candidates > 0) {
+  log(`🔄 loop discovery: ${loopAnalysis.candidates} issue(s) qualify for automation promotion`)
+}
+
 return {
   status: fixResults.some((result) => result.status === 'blocked') ? 'blocked_by_regression' : 'completed',
   dimensions: validCr,
@@ -519,5 +575,6 @@ return {
   dismissed,
   confirmed,
   fixResults,
+  loopCandidates: loopAnalysis?.candidates || 0,
   workDir,
 }

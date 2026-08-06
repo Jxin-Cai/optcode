@@ -18,11 +18,36 @@ const { existsSync, readFileSync } = require('node:fs');
 const { readFrontmatter } = require('./workflow-lib.js');
 
 const EVIDENCE_LEVELS = {
-  missing: { label: 'Missing', ceiling: 59, description: 'No concrete evidence; speculative or theoretical' },
-  present: { label: 'Present', ceiling: 74, description: 'Evidence exists (code snippet shown) but not verified' },
-  wired: { label: 'Wired', ceiling: 84, description: 'Evidence connected to system behavior (call graph, config reference)' },
-  exercised: { label: 'Exercised', ceiling: 94, description: 'Evidence reproduced via grep, test run, or static analysis' },
-  outcome: { label: 'Outcome-supported', ceiling: 100, description: 'Evidence demonstrates actual failure, crash, or incorrect output' },
+  missing: {
+    label: 'Missing', ceiling: 59, order: 0,
+    description: 'No concrete evidence; speculative or theoretical',
+    prerequisite: null,
+    promotion_requires: 'Show code snippet or reference that demonstrates the issue exists',
+  },
+  present: {
+    label: 'Present', ceiling: 74, order: 1,
+    description: 'Evidence exists (code snippet shown) but not verified',
+    prerequisite: 'missing',
+    promotion_requires: 'Connect evidence to system behavior via call graph, config, or dependency trace',
+  },
+  wired: {
+    label: 'Wired', ceiling: 84, order: 2,
+    description: 'Evidence connected to system behavior (call graph, config reference)',
+    prerequisite: 'present',
+    promotion_requires: 'Reproduce via grep, test run, static analysis, or build verification',
+  },
+  exercised: {
+    label: 'Exercised', ceiling: 94, order: 3,
+    description: 'Evidence reproduced via grep, test run, or static analysis',
+    prerequisite: 'wired',
+    promotion_requires: 'Demonstrate actual failure, crash, incorrect output, or production impact',
+  },
+  outcome: {
+    label: 'Outcome-supported', ceiling: 100, order: 4,
+    description: 'Evidence demonstrates actual failure, crash, or incorrect output',
+    prerequisite: 'exercised',
+    promotion_requires: null,
+  },
 };
 
 const VERIFICATION_TO_LEVEL = {
@@ -37,12 +62,55 @@ const VERIFICATION_TO_LEVEL = {
   'reproduction': 'outcome',
 };
 
+const LEVEL_ORDER = ['missing', 'present', 'wired', 'exercised', 'outcome'];
+
 function classifyVerification(method) {
   const normalized = (method || '').toLowerCase().trim();
   for (const [key, level] of Object.entries(VERIFICATION_TO_LEVEL)) {
     if (normalized.includes(key)) return level;
   }
   return 'present';
+}
+
+function canPromote(currentLevel, targetLevel) {
+  const currentOrder = EVIDENCE_LEVELS[currentLevel]?.order ?? -1;
+  const targetOrder = EVIDENCE_LEVELS[targetLevel]?.order ?? -1;
+  if (targetOrder <= currentOrder) return { allowed: false, reason: 'target is not higher than current level' };
+  if (targetOrder - currentOrder > 1) {
+    const skipped = LEVEL_ORDER.slice(currentOrder + 1, targetOrder);
+    return { allowed: false, reason: `cannot skip levels: must pass through ${skipped.join(' → ')} first` };
+  }
+  return { allowed: true, promotion_requires: EVIDENCE_LEVELS[currentLevel].promotion_requires };
+}
+
+function validateLadder(evidenceChain) {
+  if (!Array.isArray(evidenceChain) || evidenceChain.length === 0) {
+    return { valid: false, error: 'evidence chain is empty' };
+  }
+  const violations = [];
+  for (let i = 1; i < evidenceChain.length; i++) {
+    const prev = evidenceChain[i - 1];
+    const curr = evidenceChain[i];
+    const prevOrder = EVIDENCE_LEVELS[prev]?.order ?? -1;
+    const currOrder = EVIDENCE_LEVELS[curr]?.order ?? -1;
+    if (currOrder - prevOrder > 1) {
+      violations.push({
+        step: i,
+        from: prev,
+        to: curr,
+        message: `step ${i}: jumped from "${prev}" to "${curr}" — skipped intermediate levels`,
+      });
+    }
+    if (currOrder < prevOrder) {
+      violations.push({
+        step: i,
+        from: prev,
+        to: curr,
+        message: `step ${i}: regressed from "${prev}" to "${curr}"`,
+      });
+    }
+  }
+  return { valid: violations.length === 0, violations };
 }
 
 function getCeiling(level) {
@@ -117,4 +185,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { EVIDENCE_LEVELS, classifyVerification, getCeiling, validateReport };
+module.exports = { EVIDENCE_LEVELS, LEVEL_ORDER, classifyVerification, getCeiling, canPromote, validateLadder, validateReport };
