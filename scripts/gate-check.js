@@ -14,28 +14,11 @@
 const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { readState, readFrontmatter, appendAudit, FIX_STATUSES } = require('./workflow-lib.js');
-
-const PRIVACY_PATTERNS = [
-  { pattern: /\/Users\/[^\s/]+/g, label: 'absolute macOS path' },
-  { pattern: /\/home\/[^\s/]+/g, label: 'absolute Linux path' },
-  { pattern: /C:\\Users\\[^\s\\]+/g, label: 'absolute Windows path' },
-  { pattern: /session[_-]?id\s*[:=]\s*["']?[a-f0-9-]{8,}/gi, label: 'session ID' },
-  { pattern: /sk-[a-zA-Z0-9]{20,}/g, label: 'API secret key' },
-  { pattern: /ghp_[a-zA-Z0-9]{36,}/g, label: 'GitHub PAT' },
-  { pattern: /Bearer\s+[a-zA-Z0-9._-]{20,}/gi, label: 'bearer token' },
-  { pattern: /password\s*[:=]\s*["'][^"']{4,}["']/gi, label: 'embedded password' },
-  { pattern: /api[_-]?key\s*[:=]\s*["'][^"']{8,}["']/gi, label: 'API key literal' },
-];
+const { scanText } = require('./privacy-scan.js');
 
 function checkPrivacy(text) {
-  const violations = [];
-  for (const { pattern, label } of PRIVACY_PATTERNS) {
-    const matches = text.match(pattern);
-    if (matches) {
-      violations.push(`${label}: "${matches[0].slice(0, 40)}${matches[0].length > 40 ? '...' : ''}"`);
-    }
-  }
-  return violations;
+  const findings = scanText(text);
+  return findings.map(f => `${f.label}: "${f.match.slice(0, 40)}${f.match.length > 40 ? '...' : ''}"`);
 }
 
 function result(gate, pass, reason = '') {

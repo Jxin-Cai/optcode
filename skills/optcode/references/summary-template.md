@@ -4,7 +4,7 @@
 
 - **执行时间**: <timestamp>
 - **目标路径**: <target_paths>
-- **执行维度**: dead-code, duplication, concurrency, design, style, maintainability, legacy-safety, ai-sdd-smells
+- **执行维度**: dead-code, duplication, concurrency, design, style, maintainability, legacy-safety, ai-sdd-smells, security
 
 ## 质量门禁
 
@@ -23,6 +23,7 @@
 | 可维护性 | <score> | pass / failed / exceeded / skipped / pending |
 | 遗留安全 | <score> | pass / failed / exceeded / skipped / pending |
 | AI/SDD 坏味道 | <score> | pass / failed / exceeded / skipped / pending |
+| 安全 | <score> | pass / failed / exceeded / skipped / pending |
 
 ## 各维度结果总览
 
@@ -36,6 +37,7 @@
 | 可维护性 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 | 遗留安全 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 | AI/SDD 坏味道 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
+| 安全 | pass / needs_fix / failed / exceeded / skipped / pending | N | N | N |
 
 ## 架构图
 

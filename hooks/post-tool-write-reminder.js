@@ -3,8 +3,8 @@
  * PostToolUse hook: injects workflow reminders after Write to .optcode/ paths.
  * Reminds the orchestrator to run gate-check after writing CR/fix reports.
  */
-const { readFileSync } = require('node:fs');
-const { resolve, relative } = require('node:path');
+const { readFileSync, writeFileSync, mkdirSync } = require('node:fs');
+const { resolve, relative, join, dirname } = require('node:path');
 
 function readStdin() {
   try {
@@ -19,6 +19,19 @@ function injectContext(context) {
       additionalContext: context
     }
   }));
+}
+
+function recordWriteMarker(cwd, toolName, filePath) {
+  const markerDir = join(cwd, '.optcode', 'state');
+  const markerPath = join(markerDir, 'last-write.json');
+  try {
+    mkdirSync(markerDir, { recursive: true });
+    writeFileSync(markerPath, JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      toolName,
+      filePath,
+    }, null, 2) + '\n');
+  } catch { /* best effort */ }
 }
 
 function main() {
@@ -37,6 +50,8 @@ function main() {
 
   if (!relPath.startsWith('.optcode/') && !relPath.startsWith('.optcode\\')) return;
 
+  recordWriteMarker(cwd, input.tool_name || 'Write', absPath);
+
   const parts = relPath.split(/[/\\]/);
   if (parts.length < 3) return;
 
@@ -46,11 +61,11 @@ function main() {
     const match = subPath.match(/cr\/([^/]+)-round-(\d+)\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`CR report written: ${subPath}. Record readiness with dimension-status --cr-ready ${dimension} ${round}, then rerun orchestration-status before any gate-check.`);
+      injectContext(`CR report written: ${subPath}. Run gate-check to validate: node scripts/gate-check.js <work-dir> cr-complete:${dimension}:${round}`);
       return;
     }
     if (subPath.includes('-pass.md') || subPath.includes('-failed.md')) {
-      injectContext(`CR final report written: ${subPath}. Record result via dimension-status.js and proceed to next step.`);
+      injectContext(`CR final report written: ${subPath}.`);
       return;
     }
   }
@@ -59,14 +74,16 @@ function main() {
     const match = subPath.match(/fix\/([^/]+)-round-(\d+)-fix\.md$/);
     if (match) {
       const [, dimension, round] = match;
-      injectContext(`Fix report written: ${subPath}. Record readiness with dimension-status --fix-ready ${dimension} ${round}, then rerun orchestration-status before any gate-check.`);
+      injectContext(`Fix report written: ${subPath}. Run gate-check to validate: node scripts/gate-check.js <work-dir> fix-complete:${dimension}:${round}`);
       return;
     }
   }
 
   if (subPath === 'summary.md') {
-    injectContext('Summary written. Rerun orchestration-status and follow the returned summary gate step.');
+    injectContext('Summary written.');
   }
 }
 
 main();
+
+module.exports = { recordWriteMarker };

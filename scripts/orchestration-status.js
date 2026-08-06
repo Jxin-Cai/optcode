@@ -34,15 +34,10 @@ function getStatus(workDir) {
   // Determine current phase
   let phase = 'unknown';
   if (state.status === 'completed') phase = 'completed';
-  else if (state.parallel_batch) phase = 'parallel_cr';
-  else if (state.verification && Object.keys(state.verification).length > 0) phase = 'verification';
   else if (needsFix > 0) phase = 'fixing';
   else if (running > 0) phase = 'reviewing';
   else if (pending === total) phase = 'initialized';
   else phase = 'in_progress';
-
-  // Check for regressions
-  const regressions = (state.regression_checks || []).filter(r => r.verdict === 'REGRESSION_FOUND');
 
   // Recent audit entries
   const recentAudit = readAuditLog(workDir, 5);
@@ -63,8 +58,6 @@ function getStatus(workDir) {
     dimensions: Object.fromEntries(
       Object.entries(dims).map(([k, v]) => [k, { status: v.status, round: v.round, issues: v.issues_found }])
     ),
-    regressions: regressions.length > 0 ? regressions : null,
-    parallel_batch: state.parallel_batch ? { status: state.parallel_batch.status, dimensions: state.parallel_batch.dimensions } : null,
     recent_activity: recentAudit.map(e => ({ type: e.type, ts: e.ts })),
   };
 }
