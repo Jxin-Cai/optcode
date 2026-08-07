@@ -18,7 +18,7 @@
  *   node blast-radius.js <base-commit> [--json] [--threshold <n>]
  *   node blast-radius.js --files <file1> <file2> ... [--json]
  */
-const { execSync: _execSync } = require('node:child_process');
+const { execSync: _execSync, execFileSync: _execFileSync } = require('node:child_process');
 const { existsSync: _existsSync, readFileSync: _readFileSync } = require('node:fs');
 const { basename, extname, resolve } = require('node:path');
 
@@ -50,15 +50,15 @@ const SYMBOL_PATTERNS = {
 };
 
 function getChangedFiles(baseCommit, deps = {}) {
-  const execSyncFn = deps.execSync || _execSync;
-  const command = `git diff --name-only ${baseCommit}`;
+  const execFileSyncFn = deps.execFileSync || _execFileSync;
+  const gitArgs = ['diff', '--name-only', baseCommit];
   try {
-    const output = execSyncFn(command, { encoding: 'utf8' });
+    const output = execFileSyncFn('git', gitArgs, { encoding: 'utf8' });
     return output.trim().split('\n').filter(Boolean);
   } catch (err) {
     throw new GitFailureError(`git diff failed: ${err.message}`, {
       code: err.status || err.code,
-      command,
+      command: `git ${gitArgs.join(' ')}`,
       stderr: err.stderr || '',
       ref: baseCommit,
     });
@@ -66,11 +66,11 @@ function getChangedFiles(baseCommit, deps = {}) {
 }
 
 function getChangedSymbols(baseCommit, deps = {}) {
-  const execSyncFn = deps.execSync || _execSync;
+  const execFileSyncFn = deps.execFileSync || _execFileSync;
   const symbols = new Map();
-  const command = `git diff -U0 ${baseCommit}`;
+  const gitArgs = ['diff', '-U0', baseCommit];
   try {
-    const diff = execSyncFn(command, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    const diff = execFileSyncFn('git', gitArgs, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     let currentFile = null;
     for (const line of diff.split('\n')) {
       if (line.startsWith('+++ b/')) {
@@ -92,7 +92,7 @@ function getChangedSymbols(baseCommit, deps = {}) {
   } catch (err) {
     throw new GitFailureError(`git diff -U0 failed: ${err.message}`, {
       code: err.status || err.code,
-      command,
+      command: `git ${gitArgs.join(' ')}`,
       stderr: err.stderr || '',
       ref: baseCommit,
     });
@@ -101,14 +101,14 @@ function getChangedSymbols(baseCommit, deps = {}) {
 }
 
 function findReferences(symbol, changedFiles, maxResults = 50, deps = {}) {
-  const execSyncFn = deps.execSync || _execSync;
-  const escapedSymbol = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const execFileSyncFn = deps.execFileSync || _execFileSync;
   try {
-    const output = execSyncFn(
-      `git grep -l --fixed-strings "${symbol}" -- '*.js' '*.ts' '*.py' '*.go' '*.rb' '*.java' '*.jsx' '*.tsx' 2>/dev/null | head -${maxResults}`,
+    const output = execFileSyncFn(
+      'git',
+      ['grep', '-l', '--fixed-strings', symbol, '--', '*.js', '*.ts', '*.py', '*.go', '*.rb', '*.java', '*.jsx', '*.tsx'],
       { encoding: 'utf8', timeout: 5000 }
     );
-    return output.trim().split('\n').filter(f => f && !changedFiles.includes(f));
+    return output.trim().split('\n').filter(f => f && !changedFiles.includes(f)).slice(0, maxResults);
   } catch {
     return [];
   }

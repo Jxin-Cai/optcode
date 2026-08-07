@@ -11,7 +11,7 @@
  */
 const { existsSync, readFileSync, writeFileSync, readdirSync, statSync } = require('node:fs');
 const { join } = require('node:path');
-const { execSync } = require('node:child_process');
+const { execSync, execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { ensureDir, readState, appendAudit } = require('./workflow-lib.js');
 
@@ -33,7 +33,7 @@ function gitTreeHash() {
 
 function gitDiffStat(baseCommit) {
   try {
-    return execSync(`git diff --stat ${baseCommit}`, { encoding: 'utf8' }).trim();
+    return execFileSync('git', ['diff', '--stat', baseCommit], { encoding: 'utf8' }).trim();
   } catch {
     return null;
   }

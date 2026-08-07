@@ -48,30 +48,58 @@ function gitDirtyFiles() {
   } catch { return []; }
 }
 
-function collectFileManifest(targetPaths) {
+const EVIDENCE_LIMITS = Object.freeze({
+  maxFiles: 500,
+  maxFileSizeBytes: 2 * 1024 * 1024, // 2 MB per file
+});
+
+function collectFileManifest(targetPaths, limits = EVIDENCE_LIMITS) {
   const manifest = {};
+  const discovery = { scanned: 0, tracked: 0, omitted_size: 0, omitted_count: 0 };
+
   for (const target of targetPaths) {
     if (!existsSync(target)) continue;
     const stat = statSync(target);
     if (stat.isFile()) {
+      discovery.scanned++;
+      if (stat.size > limits.maxFileSizeBytes) {
+        discovery.omitted_size++;
+        continue;
+      }
+      if (discovery.tracked >= limits.maxFiles) {
+        discovery.omitted_count++;
+        continue;
+      }
       const content = readFileSync(target);
       manifest[target] = { size: content.length, hash: sha256(content) };
+      discovery.tracked++;
     } else if (stat.isDirectory()) {
       try {
         const files = readdirSync(target, { recursive: true });
         for (const f of files) {
+          if (discovery.tracked >= limits.maxFiles) {
+            discovery.omitted_count++;
+            continue;
+          }
           const fullPath = join(target, f);
           try {
-            if (statSync(fullPath).isFile()) {
+            const fstat = statSync(fullPath);
+            if (fstat.isFile()) {
+              discovery.scanned++;
+              if (fstat.size > limits.maxFileSizeBytes) {
+                discovery.omitted_size++;
+                continue;
+              }
               const content = readFileSync(fullPath);
               manifest[fullPath] = { size: content.length, hash: sha256(content) };
+              discovery.tracked++;
             }
           } catch { /* skip unreadable */ }
         }
       } catch { /* skip unreadable dirs */ }
     }
   }
-  return manifest;
+  return { manifest, discovery };
 }
 
 function freeze(workDir) {
@@ -81,6 +109,7 @@ function freeze(workDir) {
   const targetPaths = state.target_paths || [];
   const baseCommit = state.base_commit;
 
+  const { manifest, discovery } = collectFileManifest(targetPaths);
   const bundle = Object.freeze({
     version: BUNDLE_VERSION,
     frozen_at: new Date().toISOString(),
@@ -96,7 +125,8 @@ function freeze(workDir) {
       active_dimensions: Object.keys(state.dimensions).filter(d => state.dimensions[d].status !== 'skipped'),
       target_paths: targetPaths,
     }),
-    manifest: Object.freeze(collectFileManifest(targetPaths)),
+    manifest: Object.freeze(manifest),
+    discovery: Object.freeze(discovery),
     integrity: null,
   });
 

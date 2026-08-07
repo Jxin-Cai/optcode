@@ -10,7 +10,7 @@
  *   node change-drift.js core-candidates <base-commit> [--max-commits <n>] [--json]
  *   node change-drift.js full <base-commit> [--json]
  */
-const { execSync: _execSync } = require('node:child_process');
+const { execSync: _execSync, execFileSync: _execFileSync } = require('node:child_process');
 const { extname } = require('node:path');
 
 // --- File role classification constants ---
@@ -55,11 +55,11 @@ function parseDiffNumstat(output) {
 // --- Core functions ---
 
 function analyzeDiffImpact(baseCommit, deps = {}) {
-  const execSyncFn = deps.execSync || _execSync;
+  const execFileSyncFn = deps.execFileSync || _execFileSync;
 
   let numstatOutput;
   try {
-    numstatOutput = execSyncFn(`git diff --numstat ${baseCommit}`, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    numstatOutput = execFileSyncFn('git', ['diff', '--numstat', baseCommit], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
   } catch (err) {
     return { error: `git diff failed: ${err.message}`, files: [], summary: {}, weightedImpact: 0 };
   }
@@ -94,14 +94,14 @@ function analyzeDiffImpact(baseCommit, deps = {}) {
 }
 
 function identifyCoreCandidates(baseCommit, opts = {}, deps = {}) {
-  const execSyncFn = deps.execSync || _execSync;
+  const execFileSyncFn = deps.execFileSync || _execFileSync;
   const maxCommits = opts.maxCommits || 500;
   const threshold = opts.threshold || CORE_THRESHOLD;
 
   // Get changed source files
   let numstatOutput;
   try {
-    numstatOutput = execSyncFn(`git diff --numstat ${baseCommit}`, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    numstatOutput = execFileSyncFn('git', ['diff', '--numstat', baseCommit], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
   } catch (err) {
     return { error: `git diff failed: ${err.message}`, candidates: [] };
   }
@@ -118,7 +118,7 @@ function identifyCoreCandidates(baseCommit, opts = {}, deps = {}) {
   // Get all tracked files for fan-in analysis
   let trackedFiles = [];
   try {
-    const output = execSyncFn('git ls-files', { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+    const output = execFileSyncFn('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
     trackedFiles = output.trim().split('\n').filter(Boolean);
   } catch { /* ignore — fan-in will be 0 */ }
 
@@ -135,35 +135,39 @@ function identifyCoreCandidates(baseCommit, opts = {}, deps = {}) {
     // Fan-in: count files that import/require this file
     let fanIn = 0;
     try {
-      const grepOutput = execSyncFn(
-        `git grep -l -E "(import|require).*${fileName}" -- '*.js' '*.ts' '*.jsx' '*.tsx' '*.mjs' '*.cjs' 2>/dev/null | wc -l`,
+      const grepOutput = execFileSyncFn(
+        'git',
+        ['grep', '-l', '-E', `(import|require).*${fileName}`, '--', '*.js', '*.ts', '*.jsx', '*.tsx', '*.mjs', '*.cjs'],
         { encoding: 'utf8', timeout: 5000 }
       );
-      fanIn = Math.max(0, Number(grepOutput.trim()) - 1); // subtract self
+      fanIn = Math.max(0, grepOutput.trim().split('\n').filter(Boolean).length - 1);
     } catch { fanIn = 0; }
 
     // Churn: count commits touching this file in 30/90/180 day windows
     let churn30 = 0, churn90 = 0, churn180 = 0;
     try {
-      const c30 = execSyncFn(
-        `git log --oneline --since="30 days ago" -n ${maxCommits} -- "${file.path}" 2>/dev/null | wc -l`,
+      const c30 = execFileSyncFn(
+        'git',
+        ['log', '--oneline', '--since=30 days ago', `-n`, String(maxCommits), '--', file.path],
         { encoding: 'utf8', timeout: 5000 }
       );
-      churn30 = Number(c30.trim());
+      churn30 = c30.trim().split('\n').filter(Boolean).length;
     } catch { churn30 = 0; }
     try {
-      const c90 = execSyncFn(
-        `git log --oneline --since="90 days ago" -n ${maxCommits} -- "${file.path}" 2>/dev/null | wc -l`,
+      const c90 = execFileSyncFn(
+        'git',
+        ['log', '--oneline', '--since=90 days ago', `-n`, String(maxCommits), '--', file.path],
         { encoding: 'utf8', timeout: 5000 }
       );
-      churn90 = Number(c90.trim());
+      churn90 = c90.trim().split('\n').filter(Boolean).length;
     } catch { churn90 = 0; }
     try {
-      const c180 = execSyncFn(
-        `git log --oneline --since="180 days ago" -n ${maxCommits} -- "${file.path}" 2>/dev/null | wc -l`,
+      const c180 = execFileSyncFn(
+        'git',
+        ['log', '--oneline', '--since=180 days ago', `-n`, String(maxCommits), '--', file.path],
         { encoding: 'utf8', timeout: 5000 }
       );
-      churn180 = Number(c180.trim());
+      churn180 = c180.trim().split('\n').filter(Boolean).length;
     } catch { churn180 = 0; }
 
     const score = fanIn * 5 + churn30 * 3 + churn90 * 1;

@@ -56,6 +56,23 @@ function validateTransition(currentState, newState) {
   return { valid: true };
 }
 
+const METRIC_DIRECTIONS = Object.freeze(['lower-is-better', 'higher-is-better']);
+
+function validateMetrics(entry) {
+  if (entry.primaryMetric) {
+    if (typeof entry.primaryMetric !== 'object') throw new Error('primaryMetric must be an object');
+    if (entry.primaryMetric.direction && !METRIC_DIRECTIONS.includes(entry.primaryMetric.direction)) {
+      throw new Error(`primaryMetric.direction must be one of: ${METRIC_DIRECTIONS.join(', ')}`);
+    }
+  }
+  if (entry.guardrailMetric) {
+    if (typeof entry.guardrailMetric !== 'object') throw new Error('guardrailMetric must be an object');
+  }
+  if (entry.comparisonWindow) {
+    if (typeof entry.comparisonWindow !== 'object') throw new Error('comparisonWindow must be an object');
+  }
+}
+
 function recordIntervention(projectRoot, entry, deps = {}) {
   if (!entry.id || !entry.dimension || !entry.state) {
     throw new Error('entry must have id, dimension, and state');
@@ -63,15 +80,27 @@ function recordIntervention(projectRoot, entry, deps = {}) {
   if (!STATES.includes(entry.state)) {
     throw new Error(`invalid state: ${entry.state}`);
   }
+  validateMetrics(entry);
 
-  // Privacy scan integration
-  try {
-    const { scanText } = require('./privacy-scan.js');
-    const violations = scanText(JSON.stringify(entry));
-    entry.privacy = violations.length === 0 ? 'clean' : violations.map(v => v.label);
-  } catch {
-    entry.privacy = 'scan-unavailable';
+  // Inline privacy check — never skipped, no external dependency fallback
+  const INLINE_PRIVACY_PATTERNS = [
+    { pattern: /\/Users\/[^\s/]+/g, label: 'absolute-path' },
+    { pattern: /\/home\/[^\s/]+/g, label: 'absolute-path' },
+    { pattern: /C:\\Users\\[^\s\\]+/g, label: 'absolute-path' },
+    { pattern: /sk-[a-zA-Z0-9]{20,}/g, label: 'secret-key' },
+    { pattern: /AKIA[A-Z0-9]{16,}/g, label: 'aws-key' },
+    { pattern: /(?:sk|pk|rk)_(?:live|test)_[a-zA-Z0-9]{10,}/g, label: 'stripe-key' },
+    { pattern: /ghp_[a-zA-Z0-9]{36,}/g, label: 'github-pat' },
+    { pattern: /password\s*[:=]\s*["'][^"']{4,}["']/gi, label: 'credential' },
+    { pattern: /api[_-]?key\s*[:=]\s*["'][^"']{8,}["']/gi, label: 'api-key' },
+  ];
+  const entryText = JSON.stringify(entry);
+  const privacyViolations = [];
+  for (const { pattern, label } of INLINE_PRIVACY_PATTERNS) {
+    const re = new RegExp(pattern.source, pattern.flags);
+    if (re.test(entryText)) privacyViolations.push(label);
   }
+  entry.privacy = privacyViolations.length === 0 ? 'clean' : [...new Set(privacyViolations)];
 
   const ledger = loadLedger(projectRoot, deps);
   const existing = ledger.find(e => e.id === entry.id);
@@ -81,6 +110,10 @@ function recordIntervention(projectRoot, entry, deps = {}) {
     existing.state = entry.state;
     existing.comparison = entry.comparison || existing.comparison;
     existing.privacy = entry.privacy;
+    if (entry.primaryMetric) existing.primaryMetric = entry.primaryMetric;
+    if (entry.guardrailMetric) existing.guardrailMetric = entry.guardrailMetric;
+    if (entry.comparisonWindow) existing.comparisonWindow = entry.comparisonWindow;
+    if (entry.baseline !== undefined) existing.baseline = entry.baseline;
     existing.updated_at = new Date().toISOString();
     existing.history = existing.history || [];
     existing.history.push({ state: entry.state, timestamp: existing.updated_at });
@@ -181,4 +214,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { STATES, ALLOWED_TRANSITIONS, loadLedger, saveLedger, recordIntervention, transitionEntry, summarizeEffectiveness, validateTransition, ledgerFile };
+module.exports = { STATES, ALLOWED_TRANSITIONS, METRIC_DIRECTIONS, loadLedger, saveLedger, recordIntervention, transitionEntry, summarizeEffectiveness, validateTransition, validateMetrics, ledgerFile };

@@ -18,11 +18,11 @@ const { readState, readFrontmatter, appendAudit } = require('./workflow-lib.js')
 const TOLERANCE_RATIO = 0.2;
 
 function countIssueBlocks(text) {
-  return [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?ISSUE-\d+/gm)].length;
+  return [...text.matchAll(/^#{2,4}\s+(?:[A-Za-z][\w-]*:\s*)?ISSUE-\d+/gm)].length;
 }
 
 function extractIssueIds(text) {
-  return [...text.matchAll(/^###\s+(?:([A-Za-z][\w-]*):)?(ISSUE-\d+)/gm)]
+  return [...text.matchAll(/^#{2,4}\s+(?:([A-Za-z][\w-]*):\s*)?(ISSUE-\d+)/gm)]
     .map(m => `${m[1] || 'unknown'}:${m[2]}`);
 }
 
@@ -108,6 +108,33 @@ function validate(workDir) {
     }
 
     dimensionBindings.push(binding);
+  }
+
+  // Cross-lane consistency: detect if multiple dimensions claim findings on
+  // the same file but with contradictory assertions (same file, wildly different counts)
+  const fileClaims = {};
+  for (const binding of dimensionBindings) {
+    for (const id of binding.actual_ids) {
+      const parts = id.split(':');
+      if (parts.length >= 2) {
+        // Track which dimensions reference which files (from CR reports)
+        if (!fileClaims[binding.file]) fileClaims[binding.file] = [];
+        fileClaims[binding.file].push({ dimension: binding.dimension, count: binding.actual_count });
+      }
+    }
+  }
+  // If the same CR report file appears with conflicting counts from different reads, flag it
+  for (const [file, claims] of Object.entries(fileClaims)) {
+    if (claims.length <= 1) continue;
+    const counts = [...new Set(claims.map(c => c.count))];
+    if (counts.length > 1) {
+      violations.push({
+        type: 'cross_lane_conflict',
+        file,
+        claims: claims.map(c => `${c.dimension}:${c.count}`),
+        message: `cross-lane conflict: ${file} has inconsistent counts across lanes (${claims.map(c => `${c.dimension}=${c.count}`).join(', ')})`,
+      });
+    }
   }
 
   const result = {

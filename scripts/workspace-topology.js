@@ -13,11 +13,39 @@ const _fs = require('node:fs');
 const _path = require('node:path');
 const _cp = require('node:child_process');
 
+const TOPOLOGY_SCHEMA_VERSION = 1;
+
 const TOPOLOGY_KINDS = Object.freeze({
   STANDALONE: 'standalone',
   MONOREPO: 'monorepo',
   WORKSPACE_MEMBER: 'workspace-member',
 });
+
+function assertTopology(topology) {
+  if (!topology || typeof topology !== 'object') {
+    throw Object.assign(new Error('topology must be a non-null object'), { code: 'E_TOPOLOGY_INVALID' });
+  }
+  if (!Object.values(TOPOLOGY_KINDS).includes(topology.kind)) {
+    throw Object.assign(new Error(`topology.kind must be one of: ${Object.values(TOPOLOGY_KINDS).join(', ')}`), { code: 'E_TOPOLOGY_KIND' });
+  }
+  if (typeof topology.root !== 'string' || topology.root.length === 0) {
+    throw Object.assign(new Error('topology.root must be a non-empty string'), { code: 'E_TOPOLOGY_ROOT' });
+  }
+  if (!Array.isArray(topology.members)) {
+    throw Object.assign(new Error('topology.members must be an array'), { code: 'E_TOPOLOGY_MEMBERS' });
+  }
+  for (const member of topology.members) {
+    if (!member || typeof member.route !== 'string') {
+      throw Object.assign(new Error('each member must have a string route'), { code: 'E_TOPOLOGY_MEMBER_ROUTE' });
+    }
+    if (!member.name || typeof member.name !== 'string') {
+      throw Object.assign(new Error(`member ${member.route}: name must be a non-empty string`), { code: 'E_TOPOLOGY_MEMBER_NAME' });
+    }
+  }
+  if (topology.kind === TOPOLOGY_KINDS.MONOREPO && topology.members.length === 0) {
+    throw Object.assign(new Error('monorepo topology must have at least one member'), { code: 'E_TOPOLOGY_MONOREPO_EMPTY' });
+  }
+}
 
 const DEFAULT_DEPS = Object.freeze({
   existsSync: _fs.existsSync,
@@ -236,6 +264,11 @@ function parseGoWork(content) {
  * Returns a frozen topology object.
  */
 function detectTopology(cwd, deps) {
+  const raw = _detectTopologyImpl(cwd, deps);
+  return Object.freeze({ schema_version: TOPOLOGY_SCHEMA_VERSION, ...raw });
+}
+
+function _detectTopologyImpl(cwd, deps) {
   const d = resolveDeps(deps);
   const root = d.resolve(cwd);
   const gitRoot = findGitRoot(root, deps);
@@ -380,6 +413,12 @@ function detectTopology(cwd, deps) {
     gitRoot: gitRoot || root,
     detected_via: 'fallback (no git root or workspace indicators)',
   });
+}
+
+function detectTopologyWithAssert(cwd, deps) {
+  const topology = detectTopology(cwd, deps);
+  assertTopology(topology);
+  return topology;
 }
 
 /**
@@ -569,10 +608,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  TOPOLOGY_SCHEMA_VERSION,
+  TOPOLOGY_KINDS,
   detectTopology,
+  detectTopologyWithAssert,
+  assertTopology,
   ownerRouteFor,
   scopeForWorkDir,
-  TOPOLOGY_KINDS,
   DEFAULT_DEPS,
   resolveDeps,
   // Exported for testing

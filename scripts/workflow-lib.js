@@ -198,10 +198,7 @@ function appendAudit(workDir, entry, deps = {}) {
   const record = { ts: d.now(), ...entry };
   const file = auditLogFile(workDir, deps);
   const line = JSON.stringify(record) + '\n';
-  const existing = d.existsSync(file) ? d.readFileSync(file, 'utf8') : '';
-  const tmp = `${file}.${d.pid()}.tmp`;
-  d.writeFileSync(tmp, existing + line);
-  d.renameSync(tmp, file);
+  d.appendFileSync(file, line);
 }
 
 function normalizeMode(mode = DEFAULT_MODE) {
@@ -706,6 +703,87 @@ function compositeStatus(lanes, mode = 'light') {
   return 'partial';
 }
 
+// --- Staged Publish: write to staging, validate, then publish or rollback ---
+
+function stagingDir(workDir, subdir, deps = {}) {
+  const d = resolveDeps(deps);
+  return d.join(workDir, '.staging', subdir);
+}
+
+function createStageDir(workDir, subdir, deps = {}) {
+  const d = resolveDeps(deps);
+  const dir = stagingDir(workDir, subdir, deps);
+  d.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function publishStaged(workDir, subdir, validator, deps = {}) {
+  const d = resolveDeps(deps);
+  const staged = stagingDir(workDir, subdir, deps);
+  const target = d.join(workDir, subdir);
+
+  if (!d.existsSync(staged)) {
+    throw Object.assign(new Error(`staging dir missing: ${staged}`), { code: 'E_STAGING_MISSING' });
+  }
+
+  if (validator) {
+    const result = validator(staged);
+    if (result && !result.pass) {
+      cleanupStageDir(workDir, subdir, deps);
+      appendAudit(workDir, { type: 'staged_publish_rejected', subdir, reason: result.reason || 'validation failed' }, deps);
+      return { published: false, reason: result.reason || 'validation failed' };
+    }
+  }
+
+  let backupDir = null;
+  if (d.existsSync(target)) {
+    backupDir = `${target}.backup.${d.pid()}`;
+    d.renameSync(target, backupDir);
+  }
+
+  try {
+    d.renameSync(staged, target);
+  } catch (err) {
+    if (backupDir && !d.existsSync(target)) {
+      d.renameSync(backupDir, target);
+    }
+    appendAudit(workDir, { type: 'staged_publish_failed', subdir, error: err.message }, deps);
+    throw err;
+  }
+
+  if (backupDir && d.existsSync(backupDir)) {
+    try {
+      const rmrf = require('node:fs').rmSync;
+      rmrf(backupDir, { recursive: true, force: true });
+    } catch { /* best-effort cleanup */ }
+  }
+
+  appendAudit(workDir, { type: 'staged_published', subdir }, deps);
+  return { published: true };
+}
+
+function cleanupStageDir(workDir, subdir, deps = {}) {
+  const d = resolveDeps(deps);
+  const staged = stagingDir(workDir, subdir, deps);
+  if (d.existsSync(staged)) {
+    try {
+      const rmrf = require('node:fs').rmSync;
+      rmrf(staged, { recursive: true, force: true });
+    } catch { /* best-effort */ }
+  }
+}
+
+function cleanupAllStaged(workDir, deps = {}) {
+  const d = resolveDeps(deps);
+  const root = d.join(workDir, '.staging');
+  if (d.existsSync(root)) {
+    try {
+      const rmrf = require('node:fs').rmSync;
+      rmrf(root, { recursive: true, force: true });
+    } catch { /* best-effort */ }
+  }
+}
+
 module.exports = {
   DIMENSIONS,
   MODES,
@@ -756,4 +834,8 @@ module.exports = {
   unavailableLane,
   laneIsAvailable,
   compositeStatus,
+  createStageDir,
+  publishStaged,
+  cleanupStageDir,
+  cleanupAllStaged,
 };

@@ -280,6 +280,20 @@ Return a JSON object with:
     { label: 'cr-barrier', agentType: 'general-purpose', phase: 'CR' },
   )
 
+  // Depth-aware lane validation: deep mode blocks on any unavailable lane, light allows degraded
+  const laneDepth = mode === 'deep' ? 'normal' : 'quick'
+  const laneValidation = await agent(
+    `Run node ${pluginRoot}/scripts/evidence-lanes.js validate ${workDir} --depth ${laneDepth}. Return the JSON output as-is.`,
+    { label: 'lane-validate', phase: 'CR', schema: { type: 'object', properties: { valid: { type: 'boolean' }, confidence: { type: 'string' }, unavailable: { type: 'integer' }, degraded_lanes: { type: 'array', items: { type: 'string' } }, blocking_lanes: { type: 'array', items: { type: 'string' } } }, required: ['valid'] } },
+  )
+  if (laneValidation && !laneValidation.valid) {
+    if (mode === 'deep') {
+      log(`⛔ lane validation failed in deep mode: blocking lanes = ${(laneValidation.blocking_lanes || []).join(', ')}`)
+      return { status: 'blocked_by_gate', reason: 'lane_validation_failed', blocking_lanes: laneValidation.blocking_lanes, workDir }
+    }
+    log(`⚠ lane validation: ${laneValidation.unavailable || 0} unavailable lane(s) — confidence degraded to ${laneValidation.confidence || 'low'}`)
+  }
+
   // Score-Finding bidirectional consistency + population binding (parallel)
   const [consistency, popBinding] = await parallel([
     () => agent(
@@ -310,7 +324,7 @@ if (mode === 'deep') {
 
 if (findings.length === 0) return { status: 'pass', dimensions: validCr, workDir }
 
-const verification = budget.remaining() > 80000
+const verification = (!budget.total || budget.remaining() > 80000)
   ? await parallel(findings.map((finding) => () => agent(
       `Independently verify only ${finding.issueId} in ${finding.reportPath}.
 
@@ -365,7 +379,7 @@ const RCA_SCHEMA = {
 const rcaByDimension = {}
 const dimensionsNeedingRca = [...new Set(confirmed.map((f) => f.dimension))]
 
-if (budget.remaining() > 60000) {
+if (!budget.total || budget.remaining() > 60000) {
   phase('RCA')
   const rcaResults = await parallel(dimensionsNeedingRca.map((dimension) => () => {
     const dimFindings = confirmed.filter((f) => f.dimension === dimension)
@@ -429,7 +443,8 @@ await agent(
   { label: 'init-contracts', phase: 'Fix' },
 )
 
-// --- Fix Phase (multi-round: re-review → re-fix, max 3 rounds per dimension) ---
+// --- Fix Phase: MUST remain serial (for...of + await) — rollback safety requires
+// that no two dimensions mutate the working tree concurrently.
 phase('Fix')
 const MAX_FIX_ROUNDS = 3
 const fixResults = []

@@ -12,6 +12,10 @@ const {
 
 const script = join(__dirname, '..', 'scripts', 'change-drift.js');
 
+function mockExecFileSync(handler) {
+  return (_bin, args, _opts) => handler(args.join(' '));
+}
+
 // --- classifyFileRole tests ---
 
 test('classifyFileRole identifies source files', () => {
@@ -56,12 +60,12 @@ test('classifyFileRole identifies generated/lock files', () => {
 
 test('analyzeDiffImpact parses numstat and computes weighted impact', () => {
   const deps = {
-    execSync: (cmd) => {
+    execFileSync: mockExecFileSync((cmd) => {
       if (cmd.includes('--numstat')) {
         return '10\t2\tsrc/main.js\n5\t1\tsrc/main.test.js\n3\t0\tpackage.json\n8\t0\tREADME.md\n';
       }
       return '';
-    },
+    }),
   };
 
   const result = analyzeDiffImpact('abc123', deps);
@@ -98,7 +102,7 @@ test('analyzeDiffImpact parses numstat and computes weighted impact', () => {
 
 test('analyzeDiffImpact handles empty diff', () => {
   const deps = {
-    execSync: () => '\n',
+    execFileSync: mockExecFileSync(() => '\n'),
   };
 
   const result = analyzeDiffImpact('abc123', deps);
@@ -110,7 +114,7 @@ test('analyzeDiffImpact handles empty diff', () => {
 
 test('analyzeDiffImpact handles binary files (- - notation)', () => {
   const deps = {
-    execSync: () => '-\t-\tassets/logo.png\n5\t2\tsrc/app.js\n',
+    execFileSync: mockExecFileSync(() => '-\t-\tassets/logo.png\n5\t2\tsrc/app.js\n'),
   };
 
   const result = analyzeDiffImpact('abc123', deps);
@@ -123,7 +127,7 @@ test('analyzeDiffImpact handles binary files (- - notation)', () => {
 
 test('analyzeDiffImpact returns error on git failure', () => {
   const deps = {
-    execSync: () => { throw new Error('fatal: bad revision'); },
+    execFileSync: mockExecFileSync(() => { throw new Error('fatal: bad revision'); }),
   };
 
   const result = analyzeDiffImpact('nonexistent', deps);
@@ -136,37 +140,36 @@ test('analyzeDiffImpact returns error on git failure', () => {
 // --- identifyCoreCandidates tests with mocked deps ---
 
 test('identifyCoreCandidates identifies high-score files as core', () => {
-  const deps = {
-    execSync: (cmd) => {
-      if (cmd.includes('--numstat')) {
-        return '10\t2\tsrc/database.js\n3\t1\tsrc/helper.js\n';
-      }
-      if (cmd.includes('ls-files')) {
-        return 'src/database.js\nsrc/helper.js\nsrc/app.js\nsrc/routes.js\n';
-      }
-      // fan-in grep for database: 4 files import it
-      if (cmd.includes('grep') && cmd.includes('database')) {
-        return '4\n';
-      }
-      // fan-in grep for helper: 1 file imports it
-      if (cmd.includes('grep') && cmd.includes('helper')) {
-        return '1\n';
-      }
-      // churn for database: high churn
-      if (cmd.includes('git log') && cmd.includes('database')) {
-        if (cmd.includes('30 days')) return '8\n';
-        if (cmd.includes('90 days')) return '15\n';
-        if (cmd.includes('180 days')) return '25\n';
-      }
-      // churn for helper: low churn
-      if (cmd.includes('git log') && cmd.includes('helper')) {
-        if (cmd.includes('30 days')) return '1\n';
-        if (cmd.includes('90 days')) return '2\n';
-        if (cmd.includes('180 days')) return '3\n';
-      }
-      return '';
-    },
+  const handler = (cmd) => {
+    if (cmd.includes('--numstat')) {
+      return '10\t2\tsrc/database.js\n3\t1\tsrc/helper.js\n';
+    }
+    if (cmd.includes('ls-files')) {
+      return 'src/database.js\nsrc/helper.js\nsrc/app.js\nsrc/routes.js\n';
+    }
+    // fan-in grep for database: 4 files import it
+    if (cmd.includes('grep') && cmd.includes('database')) {
+      return 'a.js\nb.js\nc.js\nd.js\n';
+    }
+    // fan-in grep for helper: 1 file imports it
+    if (cmd.includes('grep') && cmd.includes('helper')) {
+      return 'a.js\n';
+    }
+    // churn for database: high churn
+    if (cmd.includes('log') && cmd.includes('database')) {
+      if (cmd.includes('30 days')) return Array(8).fill('x').join('\n') + '\n';
+      if (cmd.includes('90 days')) return Array(15).fill('x').join('\n') + '\n';
+      if (cmd.includes('180 days')) return Array(25).fill('x').join('\n') + '\n';
+    }
+    // churn for helper: low churn
+    if (cmd.includes('log') && cmd.includes('helper')) {
+      if (cmd.includes('30 days')) return 'x\n';
+      if (cmd.includes('90 days')) return 'x\nx\n';
+      if (cmd.includes('180 days')) return 'x\nx\nx\n';
+    }
+    return '';
   };
+  const deps = { execFileSync: mockExecFileSync(handler) };
 
   const result = identifyCoreCandidates('abc123', {}, deps);
 
@@ -194,12 +197,12 @@ test('identifyCoreCandidates identifies high-score files as core', () => {
 
 test('identifyCoreCandidates returns empty for non-source changes', () => {
   const deps = {
-    execSync: (cmd) => {
+    execFileSync: mockExecFileSync((cmd) => {
       if (cmd.includes('--numstat')) {
         return '5\t0\tREADME.md\n2\t1\tpackage.json\n';
       }
       return '';
-    },
+    }),
   };
 
   const result = identifyCoreCandidates('abc123', {}, deps);
@@ -210,13 +213,13 @@ test('identifyCoreCandidates returns empty for non-source changes', () => {
 
 test('identifyCoreCandidates respects custom threshold', () => {
   const deps = {
-    execSync: (cmd) => {
+    execFileSync: mockExecFileSync((cmd) => {
       if (cmd.includes('--numstat')) return '5\t0\tsrc/utils.js\n';
       if (cmd.includes('ls-files')) return 'src/utils.js\n';
-      if (cmd.includes('grep')) return '2\n';
-      if (cmd.includes('git log')) return '1\n';
+      if (cmd.includes('grep')) return 'a.js\nb.js\n';
+      if (cmd.includes('log')) return 'x\n';
       return '';
-    },
+    }),
   };
 
   // score = (2-1)*5 + 1*3 + 1*1 = 5+3+1 = 9
@@ -229,7 +232,7 @@ test('identifyCoreCandidates respects custom threshold', () => {
 
 test('identifyCoreCandidates handles git failure gracefully', () => {
   const deps = {
-    execSync: () => { throw new Error('fatal: bad revision'); },
+    execFileSync: mockExecFileSync(() => { throw new Error('fatal: bad revision'); }),
   };
 
   const result = identifyCoreCandidates('bad-ref', {}, deps);
@@ -241,13 +244,13 @@ test('identifyCoreCandidates handles git failure gracefully', () => {
 
 test('analyzeFullDrift merges impact and core results', () => {
   const deps = {
-    execSync: (cmd) => {
+    execFileSync: mockExecFileSync((cmd) => {
       if (cmd.includes('--numstat')) return '10\t0\tsrc/core.js\n2\t0\tREADME.md\n';
       if (cmd.includes('ls-files')) return 'src/core.js\nsrc/other.js\n';
-      if (cmd.includes('grep')) return '3\n';
-      if (cmd.includes('git log')) return '5\n';
+      if (cmd.includes('grep')) return 'a.js\nb.js\nc.js\n';
+      if (cmd.includes('log')) return Array(5).fill('x').join('\n') + '\n';
       return '';
-    },
+    }),
   };
 
   const result = analyzeFullDrift('abc123', {}, deps);
