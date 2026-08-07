@@ -241,7 +241,9 @@ function detectPlateau(workDir, windowSize = 3) {
   const tracker = readTracker(workDir);
   if (!tracker) return { plateaued: false, rounds_unchanged: 0, recommendation: 'no tracker data' };
 
-  const entries = Object.values(tracker.repair_progress);
+  const entries = Object.values(tracker.repair_progress)
+    .filter(e => e.updated_at)
+    .sort((a, b) => new Date(a.updated_at) - new Date(b.updated_at));
   const recent = entries.slice(-windowSize);
 
   if (recent.length < windowSize) {

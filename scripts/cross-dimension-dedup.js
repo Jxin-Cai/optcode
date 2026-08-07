@@ -94,13 +94,16 @@ function normalizeForFingerprint(text) {
 /**
  * Compute a stable SHA-256 fingerprint for a finding.
  * Survives minor rewording by AI across runs because it normalizes
- * text before hashing.
+ * text before hashing. Includes location to distinguish independent
+ * findings in the same file, and fixProposal for alignment with dedupKey.
  */
 function computeFingerprint(finding) {
   const file = normalizeForFingerprint(finding.file || '');
   const desc = normalizeForFingerprint(finding.description || finding.title || '');
   const dimension = (finding.dimension || '').toLowerCase();
-  const payload = `${file}||${desc}||${dimension}`;
+  const location = normalizeForFingerprint(finding.location || '');
+  const repair = normalizeForFingerprint((finding.fixProposal || '').slice(0, 60));
+  const payload = `${file}||${desc}||${dimension}||${location}||${repair}`;
   return createHash('sha256').update(payload).digest('hex').slice(0, 16);
 }
 

@@ -221,11 +221,20 @@ function getProvenanceAdjustedCeiling(evidenceLevel, provenance) {
 }
 
 function createEvidenceRecord(finding) {
-  const { id, verificationMethod, confidence } = finding;
+  const { id, verificationMethod, confidence, previousLevel } = finding;
   const evidenceLevel = classifyVerification(verificationMethod);
   const provenance = classifyProvenance(verificationMethod);
   const ceiling = getCeiling(evidenceLevel);
   const adjustedCeiling = getProvenanceAdjustedCeiling(evidenceLevel, provenance);
+
+  // Validate ladder if previous level is known — prevent skipping
+  let ladderViolation = null;
+  if (previousLevel && previousLevel !== evidenceLevel) {
+    const promotion = canPromote(previousLevel, evidenceLevel);
+    if (!promotion.allowed) {
+      ladderViolation = promotion.reason;
+    }
+  }
 
   return {
     findingId: id,
@@ -237,6 +246,7 @@ function createEvidenceRecord(finding) {
     confidence: confidence || 0,
     withinCeiling: (confidence || 0) <= adjustedCeiling,
     chain: LEVEL_ORDER.slice(0, LEVEL_ORDER.indexOf(evidenceLevel) + 1),
+    ladderViolation,
   };
 }
 

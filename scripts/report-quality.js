@@ -153,11 +153,12 @@ function gate7ScoreDiscipline(blocks) {
     const confidence = Number(parseField(block, '置信度'));
     const severity = parseField(block, '严重程度');
     const verification = parseField(block, '验证方式');
-    if (confidence > 95 && verification === 'read') {
+    const isReadOnly = verification && !(/test|grep|build|typecheck|runtime|reproduction|static.analysis/i.test(verification));
+    if (confidence > 95 && isReadOnly) {
       violations.push(`${id}: confidence ${confidence} but verification is read-only (cap at 94 for non-executed evidence)`);
     }
-    if (severity === 'high' && confidence < 85) {
-      violations.push(`${id}: high severity requires confidence >= 85, got ${confidence}`);
+    if (severity === 'high' && confidence < 80) {
+      violations.push(`${id}: high severity requires confidence >= 80, got ${confidence}`);
     }
   }
   return violations;

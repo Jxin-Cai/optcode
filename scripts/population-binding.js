@@ -110,29 +110,32 @@ function validate(workDir) {
     dimensionBindings.push(binding);
   }
 
-  // Cross-lane consistency: detect if multiple dimensions claim findings on
-  // the same file but with contradictory assertions (same file, wildly different counts)
-  const fileClaims = {};
+  // Cross-lane consistency: detect if multiple dimensions claim the exact same
+  // finding on the same target file (potential overlap that should have been deduped)
+  const targetFileClaims = {};
   for (const binding of dimensionBindings) {
     for (const id of binding.actual_ids) {
-      const parts = id.split(':');
-      if (parts.length >= 2) {
-        // Track which dimensions reference which files (from CR reports)
-        if (!fileClaims[binding.file]) fileClaims[binding.file] = [];
-        fileClaims[binding.file].push({ dimension: binding.dimension, count: binding.actual_count });
+      // Extract the target code file (from CR content) — parse from ISSUE block
+      const filePath = join(crDir, binding.file);
+      if (!existsSync(filePath)) continue;
+      const reportText = readFileSync(filePath, 'utf8');
+      const fileRefs = [...reportText.matchAll(/- \*\*文件\*\*:\s*`([^`]+)`/g)].map(m => m[1]);
+      for (const targetFile of fileRefs) {
+        if (!targetFileClaims[targetFile]) targetFileClaims[targetFile] = [];
+        targetFileClaims[targetFile].push({ dimension: binding.dimension, finding_id: id });
       }
     }
   }
-  // If the same CR report file appears with conflicting counts from different reads, flag it
-  for (const [file, claims] of Object.entries(fileClaims)) {
-    if (claims.length <= 1) continue;
-    const counts = [...new Set(claims.map(c => c.count))];
-    if (counts.length > 1) {
+  // Flag target files claimed by 3+ dimensions (unusual, likely overlap)
+  for (const [targetFile, claims] of Object.entries(targetFileClaims)) {
+    const uniqueDimensions = [...new Set(claims.map(c => c.dimension))];
+    if (uniqueDimensions.length >= 3) {
       violations.push({
-        type: 'cross_lane_conflict',
-        file,
-        claims: claims.map(c => `${c.dimension}:${c.count}`),
-        message: `cross-lane conflict: ${file} has inconsistent counts across lanes (${claims.map(c => `${c.dimension}=${c.count}`).join(', ')})`,
+        type: 'cross_lane_overlap',
+        file: targetFile,
+        dimensions: uniqueDimensions,
+        finding_count: claims.length,
+        message: `cross-lane overlap: ${targetFile} has findings from ${uniqueDimensions.length} dimensions (${uniqueDimensions.join(', ')}) — verify deduplication`,
       });
     }
   }

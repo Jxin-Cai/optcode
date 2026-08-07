@@ -14,7 +14,7 @@
 | CR agent | `agents/agent-cr.md` | 通用审查 agent，按维度视角重入使用 |
 | RCA agent | `agents/agent-rca.md` | 根因分析 agent，聚类问题并产出原则对齐策略 |
 | Fixer agent | `agents/agent-fixer.md` | 修复 agent，按 RCA 策略或 CR 报告执行修复 |
-| 维度视角 | `dimensions/*.md` | 7 个维度的检查清单和专属规则 |
+| 维度视角 | `dimensions/*.md` | 9 个维度的检查清单和专属规则 |
 | 状态机 | `scripts/workflow-lib.js` | 原子写入、状态读写、审计日志、停滞检测 |
 | 恢复点 | `scripts/orchestration-status.js` | 每轮判定下一步 action |
 | 门检查 | `scripts/gate-check.js` | 产物后置条件验证 |

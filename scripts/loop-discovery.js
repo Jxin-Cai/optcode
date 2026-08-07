@@ -94,8 +94,10 @@ function scoreImpactScope(issue) {
 
 function scoreCategoryConcentration(issue, allIssues) {
   if (!issue.dimension || !issue.pattern) return 0;
+  const issueId = issue.fingerprint || issue.id;
   const samePattern = allIssues.filter(i =>
-    i.dimension === issue.dimension && i.pattern === issue.pattern
+    i.dimension === issue.dimension && i.pattern === issue.pattern &&
+    (i.fingerprint || i.id) !== issueId
   ).length;
   if (samePattern >= 5) return 2;
   if (samePattern >= 3) return 1;

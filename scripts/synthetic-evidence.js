@@ -60,12 +60,16 @@ function resolveFilePath(ref, baseDir) {
 
 function grepSymbol(symbol, baseDir) {
   try {
-    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const result = execSync(
-      `grep -rl "${escaped}" "${baseDir}" --include="*.js" --include="*.ts" --include="*.tsx" --include="*.jsx" --include="*.py" --include="*.go" --include="*.java" --include="*.rs" 2>/dev/null | head -3`,
-      { encoding: 'utf8', timeout: 5000 },
+    const { execFileSync } = require('node:child_process');
+    const result = execFileSync(
+      'grep',
+      ['-rl', '--fixed-strings', symbol, baseDir,
+       '--include=*.js', '--include=*.ts', '--include=*.tsx', '--include=*.jsx',
+       '--include=*.py', '--include=*.go', '--include=*.java', '--include=*.rs'],
+      { encoding: 'utf8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'] },
     );
-    return result.trim().length > 0;
+    const lines = result.trim().split('\n').filter(Boolean);
+    return lines.length > 0;
   } catch {
     return false;
   }

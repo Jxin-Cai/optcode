@@ -49,6 +49,30 @@ const SYMBOL_PATTERNS = {
   '.java': /(?:class\s+|interface\s+|enum\s+|(?:public|private|protected)\s+(?:static\s+)?(?:\w+\s+))([A-Z][\w]*)/g,
 };
 
+function getFileExportedSymbols(filePath, deps = {}) {
+  const readFileSyncFn = deps.readFileSync || _readFileSync;
+  const existsSyncFn = deps.existsSync || _existsSync;
+  const absPath = resolve(filePath);
+  if (!existsSyncFn(absPath)) return [];
+  try {
+    const content = readFileSyncFn(absPath, 'utf8');
+    const ext = extname(filePath);
+    const pattern = SYMBOL_PATTERNS[ext];
+    if (!pattern) return [];
+    const symbols = [];
+    const regex = new RegExp(pattern.source, pattern.flags);
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      if (match[1] && match[1].length > 3 && symbols.length < 10) {
+        symbols.push(match[1]);
+      }
+    }
+    return [...new Set(symbols)];
+  } catch {
+    return [];
+  }
+}
+
 function getChangedFiles(baseCommit, deps = {}) {
   const execFileSyncFn = deps.execFileSync || _execFileSync;
   const gitArgs = ['diff', '--name-only', baseCommit];
@@ -102,10 +126,11 @@ function getChangedSymbols(baseCommit, deps = {}) {
 
 function findReferences(symbol, changedFiles, maxResults = 50, deps = {}) {
   const execFileSyncFn = deps.execFileSync || _execFileSync;
+  if (symbol.length <= 2) return [];
   try {
     const output = execFileSyncFn(
       'git',
-      ['grep', '-l', '--fixed-strings', symbol, '--', '*.js', '*.ts', '*.py', '*.go', '*.rb', '*.java', '*.jsx', '*.tsx'],
+      ['grep', '-l', '--word-regexp', '--fixed-strings', symbol, '--', '*.js', '*.ts', '*.py', '*.go', '*.rb', '*.java', '*.jsx', '*.tsx'],
       { encoding: 'utf8', timeout: 5000 }
     );
     return output.trim().split('\n').filter(f => f && !changedFiles.includes(f)).slice(0, maxResults);
@@ -133,18 +158,44 @@ function computeBlastRadius(baseCommit, targetFiles, deps = {}) {
       }
     }
 
-    // BFS: transitive dependents (one level deep to avoid explosion)
+    // BFS: transitive dependents (2 levels, capped fan-out per node)
     const transitiveReach = new Set();
-    for (const dep of allDependents) {
-      const depBasename = basename(dep, extname(dep));
-      if (depBasename.length > 2) {
-        const transRefs = findReferences(depBasename, [...changedFiles, ...allDependents], 10, deps);
-        transRefs.forEach(f => transitiveReach.add(f));
+    const visited = new Set([...changedFiles, ...allDependents]);
+    let frontier = [...allDependents];
+    const MAX_BFS_DEPTH = 2;
+    const MAX_FANOUT_PER_NODE = 5;
+
+    for (let depth = 0; depth < MAX_BFS_DEPTH && frontier.length > 0; depth++) {
+      const nextFrontier = [];
+      for (const dep of frontier) {
+        // Use symbols exported from the dependent file rather than bare basename
+        const depSymbols = baseCommit ? getFileExportedSymbols(dep, deps) : [];
+        const searchTerms = depSymbols.length > 0 ? depSymbols : [];
+        // Fall back to filename only for files with no discovered symbols
+        if (searchTerms.length === 0) {
+          const name = basename(dep, extname(dep));
+          if (name.length > 3 && !/^index$/.test(name)) searchTerms.push(name);
+        }
+        for (const term of searchTerms.slice(0, 3)) {
+          const transRefs = findReferences(term, [...visited], MAX_FANOUT_PER_NODE, deps);
+          for (const f of transRefs) {
+            if (!visited.has(f)) {
+              visited.add(f);
+              transitiveReach.add(f);
+              nextFrontier.push(f);
+            }
+          }
+        }
       }
+      frontier = nextFrontier;
     }
 
     const directFanIn = allDependents.size;
-    const score = Math.min(100, directFanIn * 10 + transitiveReach.size * 3 + changedFiles.length * 5);
+    // Diminishing returns scoring: first few dependents score high, later ones less
+    const fanInScore = Math.min(40, directFanIn <= 3 ? directFanIn * 8 : 24 + (directFanIn - 3) * 3);
+    const transitiveScore = Math.min(30, transitiveReach.size <= 5 ? transitiveReach.size * 4 : 20 + (transitiveReach.size - 5) * 2);
+    const fileScore = Math.min(30, changedFiles.length <= 3 ? changedFiles.length * 5 : 15 + (changedFiles.length - 3) * 2);
+    const score = Math.min(100, fanInScore + transitiveScore + fileScore);
     const severity = score <= 25 ? 'low' : score <= 50 ? 'moderate' : score <= 75 ? 'high' : 'critical';
 
     return {

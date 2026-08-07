@@ -86,7 +86,7 @@ function syncFromCrReports(projectRoot, workDir) {
       if (existing) {
         existing.last_seen = now;
         existing.run_count += 1;
-        if (existing.status === 'resolved') {
+        if (existing.status === 'resolved' && !existing.permanently_resolved) {
           existing.status = 'active';
         }
       } else {
@@ -136,13 +136,14 @@ function defer(projectRoot, id, reason) {
   console.log(`Deferred: ${id}`);
 }
 
-function resolve(projectRoot, id) {
+function resolve(projectRoot, id, permanent = false) {
   const issues = loadKnownIssues(projectRoot);
   const issue = issues.find(i => i.id === id);
   if (!issue) { console.error(`Issue not found: ${id}`); process.exit(1); }
   issue.status = 'resolved';
+  if (permanent) issue.permanently_resolved = true;
   saveKnownIssues(projectRoot, issues);
-  console.log(`Resolved: ${id}`);
+  console.log(`Resolved${permanent ? ' (permanent)' : ''}: ${id}`);
 }
 
 function list(projectRoot, statusFilter) {
@@ -211,9 +212,10 @@ if (require.main === module) {
       break;
     }
     case 'resolve': {
-      const id = rest[0];
-      if (!id) { console.error('Usage: known-issues.js resolve <id>'); process.exit(1); }
-      resolve(projectRoot, id);
+      const id = rest.find(a => !a.startsWith('--'));
+      const permanent = rest.includes('--permanent');
+      if (!id) { console.error('Usage: known-issues.js resolve <id> [--permanent]'); process.exit(1); }
+      resolve(projectRoot, id, permanent);
       break;
     }
     case 'list': {
