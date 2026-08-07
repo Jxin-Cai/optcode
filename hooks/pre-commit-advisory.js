@@ -19,10 +19,7 @@ function main() {
 
   const cwd = input.cwd || process.cwd();
   const optcodeDir = join(cwd, '.optcode');
-  if (!existsSync(optcodeDir)) {
-    output('建议先运行 /optcode check security,design 再提交，以捕获注入、鉴权和设计问题。');
-    return;
-  }
+  if (!existsSync(optcodeDir)) return;
 
   let entries;
   try {

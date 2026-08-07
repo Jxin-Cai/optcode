@@ -1,5 +1,5 @@
 ---
-description: "Use this skill when the user invokes /optcode or asks for multi-dimension code review, AI-generated code governance, or regression-safe automatic fixes."
+description: "Use when the user types /optcode. Do not trigger on general 'code review' or 'fix' requests unless /optcode is explicitly mentioned."
 argument-hint: "[review|fix|check|status] [target paths] [--mode light|deep|auto] [--dims dim1,dim2,...] [--skip dim1,dim2,...]"
 allowed-tools: ["Bash", "Read", "Write", "Agent", "Workflow", "Grep", "Glob"]
 ---
@@ -28,6 +28,19 @@ For `dashboard`: If work-dir has an existing `dashboard.md`, run `node "${CLAUDE
 For `check`: skip full init-state if only one dimension is requested. Still create a work directory and file inventory, but pass `singleDimension` and `maxFindings` to the Workflow args.
 
 See `references/subcommands.md` for detailed semantics.
+
+## Reference Loading Rules
+
+Only Read the references listed for the current sub-command. Do not preload all references.
+
+| Sub-command | Required References |
+|-------------|-------------------|
+| (default/review) | `action-init.md`, `hard-gate.md` |
+| fix | `hard-gate.md` |
+| check | (none — skip references) |
+| status / dashboard | (none — no workflow) |
+
+Templates (`cr-report-template.md`, `fix-report-template.md`, `rca-report-template.md`, `arch-diagram-guide.md`, `engineering-principles.md`) are loaded by agents themselves via their system prompts — do NOT read them from this skill.
 
 ## 1. Parse and validate input
 
