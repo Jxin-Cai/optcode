@@ -8,9 +8,12 @@
  *   node dashboard.js open <work-dir>       # Print existing dashboard to stdout
  *   node dashboard.js history               # Show cross-run trend summary
  */
-const { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync, readdirSync } = require('node:fs');
-const { join, dirname, resolve } = require('node:path');
+const { existsSync, readFileSync, writeFileSync, renameSync, readdirSync } = require('node:fs');
+const { join, resolve } = require('node:path');
 const { readState } = require('./workflow-lib.js');
+const { parseCrFindings } = require('./report-parser.js');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
 
 // ─── Health History (cross-run) ───────────────────────────────────────────────
 
@@ -19,23 +22,21 @@ function historyFile(projectRoot) {
 }
 
 function loadHistory(projectRoot) {
-  const file = historyFile(projectRoot);
-  if (!existsSync(file)) return [];
-  try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return []; }
+  return readJsonFile(historyFile(projectRoot), { defaultValue: [], validate: Array.isArray });
 }
 
 function saveHistory(projectRoot, history) {
-  const file = historyFile(projectRoot);
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = file + '.tmp.' + process.pid;
-  writeFileSync(tmp, JSON.stringify(history, null, 2), 'utf8');
-  renameSync(tmp, file);
+  writeJsonFile(historyFile(projectRoot), history, { validate: Array.isArray });
 }
 
 function recordHistory(projectRoot, workDir, gateOutput, state) {
   const history = loadHistory(projectRoot);
+  const runKey = resolve(projectRoot, workDir);
+  const existingIndex = history.findIndex(item =>
+    item && typeof item.run_dir === 'string' && resolve(projectRoot, item.run_dir) === runKey
+  );
   const entry = {
-    timestamp: new Date().toISOString(),
+    timestamp: existingIndex >= 0 ? history[existingIndex].timestamp : new Date().toISOString(),
     run_dir: workDir,
     score: gateOutput.score,
     verdict: gateOutput.verdict,
@@ -47,7 +48,8 @@ function recordHistory(projectRoot, workDir, gateOutput, state) {
   for (const [dim, info] of Object.entries(gateOutput.breakdown)) {
     entry.breakdown[dim] = { score: info.score, status: info.status };
   }
-  history.push(entry);
+  if (existingIndex >= 0) history[existingIndex] = entry;
+  else history.push(entry);
   saveHistory(projectRoot, history);
   return entry;
 }
@@ -67,21 +69,18 @@ function parseCrReports(workDir) {
     const content = readFileSync(join(crDir, report), 'utf8');
     const dimMatch = content.match(/^dimension:\s*(.+)$/m);
     const dimension = dimMatch ? dimMatch[1].trim() : 'unknown';
-    const issuePattern = /###\s+(?:\S+:)?ISSUE-\d+:\s*(.+)/g;
-    let match;
-    while ((match = issuePattern.exec(content)) !== null) {
-      const title = match[1].trim();
-      const block = content.slice(match.index, content.indexOf('\n### ', match.index + 1) > 0 ? content.indexOf('\n### ', match.index + 1) : undefined);
-      const severity = (block.match(/\*\*严重程度\*\*:\s*(high|medium|low)/) || [])[1] || 'medium';
-      const risk = (block.match(/\*\*修复风险\*\*:\s*(safe|local|structural|behavior-risk)/) || [])[1] || 'local';
-      const file = (block.match(/\*\*文件\*\*:\s*`([^`]+)`/) || [])[1] || 'unknown';
-      const location = (block.match(/\*\*位置\*\*:\s*(L\d+-L\d+)/) || [])[1] || '';
-      const decayRisk = (block.match(/\*\*衰变风险\*\*:\s*(low|medium|high)\s*[—-]\s*(.+)/) || []);
+    for (const finding of parseCrFindings(content, { dimension, sourceReport: report })) {
+      const decayRisk = (finding.fields['衰变风险'] || '').match(/^(low|medium|high)\s*[—-]\s*(.+)/);
       issues.push({
-        title, dimension, severity, risk, file, location,
-        weight: SEVERITY_WEIGHT[severity] || 1,
-        decay_risk: decayRisk[1] || null,
-        decay_reason: decayRisk[2] || null
+        title: finding.title,
+        dimension: finding.dimension,
+        severity: finding.severity || 'medium',
+        risk: finding.fields['修复风险'] || 'local',
+        file: finding.file || 'unknown',
+        location: finding.location || '',
+        weight: SEVERITY_WEIGHT[finding.severity || 'medium'] || 1,
+        decay_risk: decayRisk?.[1] || null,
+        decay_reason: decayRisk?.[2] || null
       });
     }
   }
@@ -268,10 +267,10 @@ function generateDashboard(projectRoot, workDir) {
   }
 
   // Run quality gate to get current scores
-  const { execSync } = require('node:child_process');
+  const { execFileSync } = require('node:child_process');
   let gateOutput;
   try {
-    const raw = execSync(`node "${join(__dirname, 'quality-gate.js')}" "${workDir}"`, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const raw = execFileSync(process.execPath, [join(__dirname, 'quality-gate.js'), workDir, '--no-history'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     gateOutput = JSON.parse(raw);
   } catch (e) {
     process.stderr.write(`Failed to run quality-gate: ${e.message}\n`);
@@ -323,18 +322,12 @@ function generateDashboard(projectRoot, workDir) {
 }
 
 function generate(projectRoot, workDir) {
-  const { md, gateOutput } = generateDashboard(projectRoot, workDir);
+  const { md } = generateDashboard(projectRoot, workDir);
 
   const outputPath = join(workDir, 'dashboard.md');
   const tmp = outputPath + '.tmp.' + process.pid;
   writeFileSync(tmp, md, 'utf8');
   renameSync(tmp, outputPath);
-
-  // Record to history
-  const state = readState(workDir);
-  if (state) {
-    recordHistory(projectRoot, workDir, gateOutput, state);
-  }
 
   console.log(outputPath);
 }
@@ -393,6 +386,7 @@ module.exports = { loadHistory, saveHistory, recordHistory, parseCrReports, comp
 
 // CLI
 if (require.main === module) {
+  guardCli(() => {
   const [,, command, ...rest] = process.argv;
   const projectRoot = process.cwd();
 
@@ -417,4 +411,5 @@ if (require.main === module) {
       process.stderr.write('Usage: dashboard.js <generate|open|history> [work-dir]\n');
       process.exit(1);
   }
+  });
 }

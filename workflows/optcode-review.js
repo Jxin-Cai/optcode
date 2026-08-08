@@ -105,6 +105,41 @@ if (!['light', 'deep', 'auto'].includes(mode)) throw new Error(`unsupported mode
 
 log(`optcode: starting ${mode}${resumeFix ? ' (resume-fix)' : ''} review in ${workDir}`)
 
+let effectiveMode = mode
+if (mode === 'auto' && !resumeFix) {
+  phase('Activate')
+  const preflight = await agent(
+    `Perform a read-only OptCode preflight for ${workDir}.
+Read ${workDir}/file-inventory.md and inspect only bounded project metadata needed to estimate change risk.
+Choose light for local, low-coupling changes; choose deep for broad, structural, legacy-sensitive, or high-blast-radius work.
+Do not modify business code. Return a machine-readable recommendation with concrete signals.`,
+    {
+      label: 'auto-preflight',
+      phase: 'Activate',
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          recommendedMode: { type: 'string', enum: ['light', 'deep'] },
+          reason: { type: 'string' },
+          signals: { type: 'object' },
+        },
+        required: ['recommendedMode', 'reason', 'signals'],
+      },
+    },
+  )
+  if (!preflight) return { status: 'blocked_by_gate', reason: 'auto_preflight_unavailable', workDir }
+  const recorded = await agent(
+    `Run node ${pluginRoot}/scripts/dimension-status.js ${workDir} --preflight-done ${preflight.recommendedMode} workflow-auto-preflight '{}'. Return the JSON output exactly. Do not interpolate prose into the shell command.`,
+    { label: 'auto-preflight-record', phase: 'Activate', schema: { type: 'object', properties: { recorded: { type: 'boolean' }, resolved_mode: { type: 'string' } }, required: ['recorded', 'resolved_mode'] } },
+  )
+  if (!recorded || recorded.resolved_mode !== preflight.recommendedMode) {
+    return { status: 'blocked_by_gate', reason: 'auto_preflight_not_recorded', workDir }
+  }
+  effectiveMode = preflight.recommendedMode
+  log(`auto preflight resolved mode to ${effectiveMode}: ${preflight.reason}`)
+}
+
 // --- Resume Fix: skip CR, reconstruct findings from existing reports ---
 if (resumeFix) {
   phase('Activate')
@@ -138,14 +173,18 @@ If no CR reports exist or none have needs_fix, return empty arrays.`,
 // --- Normal flow: CR → Verify → Fix ---
 const crResult = await workflow(
   { scriptPath: `${pluginRoot}/workflows/phases/cr-phase.js` },
-  { pluginRoot, workDir, baseCommit, targetPaths, dimensions, mode, singleDimension, maxFindings, schemas },
+  { pluginRoot, workDir, baseCommit, targetPaths, dimensions, mode: effectiveMode, singleDimension, maxFindings, schemas },
 )
 
 if (crResult.status === 'skipped' || crResult.status === 'blocked_by_gate') return crResult
 
+if (singleDimension) {
+  return { status: 'check_complete', dimensions: crResult.validCr, findings: crResult.findings, workDir }
+}
+
 const verifyResult = await workflow(
   { scriptPath: `${pluginRoot}/workflows/phases/verify-phase.js` },
-  { pluginRoot, workDir, baseCommit, mode, fixEnabled, activeDimensions: crResult.activeDimensions, validCr: crResult.validCr, findings: crResult.findings, schemas },
+  { pluginRoot, workDir, baseCommit, mode: effectiveMode, fixEnabled, activeDimensions: crResult.activeDimensions, validCr: crResult.validCr, findings: crResult.findings, schemas },
 )
 
 if (verifyResult.status === 'pass' || verifyResult.status === 'verification_required' || verifyResult.status === 'all_dismissed' || verifyResult.status === 'review_only') {

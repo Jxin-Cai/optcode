@@ -68,7 +68,8 @@ const state = initState(workDir, targetPaths, baseCommit, options.skipDimensions
   mode: options.requestedMode,
   requested_mode: options.requestedMode,
   diff: options.diff,
-  diff_base_ref: options.diff_base_ref
+  diff_base_ref: options.diff_base_ref,
+  project_root: process.cwd()
 });
 
 console.log(JSON.stringify({

@@ -23,9 +23,10 @@
  *   node loop-discovery.js promote <issue-fingerprint> --type <hook|rule|workflow|human-gated>
  *   node loop-discovery.js history
  */
-const { existsSync, readFileSync, writeFileSync, readdirSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
-const { atomicReplace } = require('./workflow-lib.js');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
 
 const KNOWN_ISSUES_PATH = join(process.cwd(), '.optcode', 'known-issues.json');
 const HEALTH_HISTORY_PATH = join(process.cwd(), '.optcode', 'health-history.json');
@@ -44,30 +45,32 @@ const COVERAGE_LADDER = Object.freeze([
 ]);
 
 function readKnownIssues() {
-  if (!existsSync(KNOWN_ISSUES_PATH)) return [];
-  try {
-    const data = JSON.parse(readFileSync(KNOWN_ISSUES_PATH, 'utf8'));
-    return Array.isArray(data) ? data : (data.issues || []);
-  } catch { return []; }
+  const data = readJsonFile(KNOWN_ISSUES_PATH, {
+    defaultValue: [],
+    validate: value => Array.isArray(value) || (value && Array.isArray(value.issues)),
+  });
+  return Array.isArray(data) ? data : data.issues;
 }
 
 function readHealthHistory() {
-  if (!existsSync(HEALTH_HISTORY_PATH)) return [];
-  try {
-    const data = JSON.parse(readFileSync(HEALTH_HISTORY_PATH, 'utf8'));
-    return Array.isArray(data) ? data : (data.entries || []);
-  } catch { return []; }
+  const data = readJsonFile(HEALTH_HISTORY_PATH, {
+    defaultValue: [],
+    validate: value => Array.isArray(value) || (value && Array.isArray(value.entries)),
+  });
+  return Array.isArray(data) ? data : data.entries;
 }
 
 function readLoopRegistry() {
-  if (!existsSync(LOOP_REGISTRY_PATH)) return { version: 1, loops: [], promoted_at: [] };
-  try {
-    return JSON.parse(readFileSync(LOOP_REGISTRY_PATH, 'utf8'));
-  } catch { return { version: 1, loops: [], promoted_at: [] }; }
+  return readJsonFile(LOOP_REGISTRY_PATH, {
+    defaultValue: { version: 1, loops: [], promoted_at: [] },
+    validate: value => value && Array.isArray(value.loops) && Array.isArray(value.promoted_at),
+  });
 }
 
 function writeLoopRegistry(registry) {
-  atomicReplace(LOOP_REGISTRY_PATH, JSON.stringify(registry, null, 2) + '\n');
+  writeJsonFile(LOOP_REGISTRY_PATH, registry, {
+    validate: value => value && Array.isArray(value.loops) && Array.isArray(value.promoted_at),
+  });
 }
 
 function scoreRecurrence(issue) {
@@ -460,5 +463,5 @@ function main() {
   }
 }
 
-if (require.main === module) main();
+if (require.main === module) guardCli(main);
 module.exports = { analyze, promote, readLoopRegistry, computeScore, classifyRuntime };

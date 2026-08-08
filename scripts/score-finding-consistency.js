@@ -13,7 +13,8 @@
  */
 const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
-const { readState, DIMENSIONS, readFrontmatter, appendAudit } = require('./workflow-lib.js');
+const { readState, DIMENSIONS, appendAudit } = require('./workflow-lib.js');
+const { parseCrFindings } = require('./report-parser.js');
 
 const LOW_SCORE_THRESHOLD = 70;
 
@@ -27,18 +28,12 @@ function extractFindingDimensionRefs(workDir) {
   const files = readdirSync(crDir).filter(f => f.endsWith('.md'));
   for (const file of files) {
     const text = readFileSync(join(crDir, file), 'utf8');
-    const fm = readFrontmatter(text);
     const dimFromFile = file.replace(/-(?:round-\d+|pass|failed)\.md$/, '');
+    for (const finding of parseCrFindings(text, { dimension: dimFromFile, sourceReport: file })) {
+      findings.push({ id: finding.id, dimension: finding.dimension, file });
 
-    const issueMatches = [...text.matchAll(/^###\s+(?:([A-Za-z][\w-]*):)?(ISSUE-\d+)/gm)];
-    for (const match of issueMatches) {
-      const dimPrefix = match[1] || dimFromFile;
-      const issueId = match[2];
-      const fullId = `${dimPrefix}:${issueId}`;
-      findings.push({ id: fullId, dimension: dimPrefix, file });
-
-      if (!dimensionRefs.has(dimPrefix)) dimensionRefs.set(dimPrefix, []);
-      dimensionRefs.get(dimPrefix).push(fullId);
+      if (!dimensionRefs.has(finding.dimension)) dimensionRefs.set(finding.dimension, []);
+      dimensionRefs.get(finding.dimension).push(finding.id);
     }
   }
 

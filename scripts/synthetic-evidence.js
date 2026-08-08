@@ -17,12 +17,14 @@ const { existsSync, readFileSync } = require('node:fs');
 const { join, isAbsolute, dirname } = require('node:path');
 const { execSync } = require('node:child_process');
 const { appendAudit } = require('./workflow-lib.js');
+const { splitIssueBlocks } = require('./report-parser.js');
 
 function extractFileRefs(text) {
   const refs = [];
-  const filePattern = /- \*\*文件\*\*:\s*`([^`]+)`/g;
-  for (const match of text.matchAll(filePattern)) {
-    refs.push({ type: 'file', value: match[1], index: match.index });
+  for (const issue of splitIssueBlocks(text)) {
+    if (issue.fields['文件']) {
+      refs.push({ type: 'file', value: issue.fields['文件'], index: issue.start, issue: issue.qualified_id });
+    }
   }
   const codeBlockRefs = /(?:^|\n)(?:\/\/|#)\s*(?:file|File|FILE):\s*(.+)/g;
   for (const match of text.matchAll(codeBlockRefs)) {
@@ -33,21 +35,21 @@ function extractFileRefs(text) {
 
 function extractSymbolRefs(text) {
   const refs = [];
-  const symbolPattern = /- \*\*位置\*\*:\s*`?([^`\n]+)`?/g;
-  for (const match of text.matchAll(symbolPattern)) {
-    const raw = match[1].trim();
+  for (const issue of splitIssueBlocks(text)) {
+    const raw = issue.fields['位置'];
+    if (!raw) continue;
     const lineMatch = raw.match(/(?:L|line\s*)(\d+)/i);
     const funcMatch = raw.match(/(?:function|method|class|def)\s+([A-Za-z_][\w.]*)/i);
     if (!funcMatch) {
       const symbolOnly = raw.match(/^([A-Za-z_][\w.]*(?:\(\))?)/);
       if (symbolOnly && symbolOnly[1].length > 2) {
-        refs.push({ type: 'symbol', value: symbolOnly[1].replace(/\(\)$/, ''), index: match.index });
+        refs.push({ type: 'symbol', value: symbolOnly[1].replace(/\(\)$/, ''), index: issue.start, issue: issue.qualified_id });
       }
     } else {
-      refs.push({ type: 'symbol', value: funcMatch[1], index: match.index });
+      refs.push({ type: 'symbol', value: funcMatch[1], index: issue.start, issue: issue.qualified_id });
     }
     if (lineMatch) {
-      refs.push({ type: 'line', value: Number(lineMatch[1]), index: match.index });
+      refs.push({ type: 'line', value: Number(lineMatch[1]), index: issue.start, issue: issue.qualified_id });
     }
   }
   return refs;
@@ -96,13 +98,18 @@ function detectSynthetic(reportPath, options = {}) {
   const symbolRefs = extractSymbolRefs(text);
   const violations = [];
 
-  const issueBlocks = [...text.matchAll(/^###\s+(?:([A-Za-z][\w-]*):)?(ISSUE-\d+)/gm)];
+  const issueBlocks = splitIssueBlocks(text);
+
+  function issueFor(ref) {
+    if (ref.issue) return ref.issue;
+    const issue = issueBlocks.find(block => ref.index >= block.start && ref.index < block.end);
+    return issue?.qualified_id || 'unknown';
+  }
 
   for (const ref of fileRefs) {
     const resolved = resolveFilePath(ref.value, baseDir);
     if (!existsSync(resolved)) {
-      const issueCtx = issueBlocks.filter(m => m.index < ref.index).pop();
-      const issueId = issueCtx ? `${issueCtx[1] || ''}:${issueCtx[2]}` : 'unknown';
+      const issueId = issueFor(ref);
       violations.push({
         type: 'fabricated_file',
         reference: ref.value,
@@ -116,8 +123,7 @@ function detectSynthetic(reportPath, options = {}) {
   for (const ref of symbolRefs) {
     if (ref.type === 'symbol' && !skipSymbolGrep) {
       if (!grepSymbol(ref.value, baseDir)) {
-        const issueCtx = issueBlocks.filter(m => m.index < ref.index).pop();
-        const issueId = issueCtx ? `${issueCtx[1] || ''}:${issueCtx[2]}` : 'unknown';
+        const issueId = issueFor(ref);
         violations.push({
           type: 'fabricated_symbol',
           reference: ref.value,
@@ -126,13 +132,13 @@ function detectSynthetic(reportPath, options = {}) {
         });
       }
     } else if (ref.type === 'line') {
-      const nearestFile = fileRefs.filter(f => f.index < ref.index).pop();
+      const nearestFile = fileRefs.find(fileRef => ref.issue && fileRef.issue === ref.issue)
+        || fileRefs.filter(fileRef => fileRef.index <= ref.index).pop();
       if (nearestFile) {
         const resolved = resolveFilePath(nearestFile.value, baseDir);
         const lineCount = getFileLineCount(resolved);
         if (lineCount > 0 && ref.value > lineCount) {
-          const issueCtx = issueBlocks.filter(m => m.index < ref.index).pop();
-          const issueId = issueCtx ? `${issueCtx[1] || ''}:${issueCtx[2]}` : 'unknown';
+          const issueId = issueFor(ref);
           violations.push({
             type: 'fabricated_line',
             reference: `L${ref.value}`,

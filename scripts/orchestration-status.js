@@ -10,12 +10,7 @@
  * Output: JSON status report
  */
 const { readState, DIMENSIONS, readAuditLog } = require('./workflow-lib.js');
-
-const workDir = process.argv[2];
-if (!workDir) {
-  process.stderr.write('用法: node orchestration-status.js <work-dir>\n');
-  process.exit(1);
-}
+const { failure, success, writeJsonResult } = require('./cli-result.js');
 
 function getStatus(workDir) {
   const state = readState(workDir);
@@ -62,5 +57,19 @@ function getStatus(workDir) {
   };
 }
 
-const result = getStatus(workDir);
-console.log(JSON.stringify(result, null, 2));
+function main() {
+  const workDir = process.argv[2];
+  if (!workDir) {
+    const error = Object.assign(new Error('用法: node orchestration-status.js <work-dir>'), { code: 'E_USAGE' });
+    process.exitCode = writeJsonResult(failure(error, 'E_USAGE'));
+    return;
+  }
+  try {
+    process.exitCode = writeJsonResult(success(getStatus(workDir)));
+  } catch (error) {
+    process.exitCode = writeJsonResult(failure(error));
+  }
+}
+
+if (require.main === module) main();
+module.exports = { getStatus, main };

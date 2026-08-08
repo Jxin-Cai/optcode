@@ -10,28 +10,24 @@
  *   node known-issues.js resolve <id>
  *   node known-issues.js list [--status active|deferred|resolved]
  */
-const { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync } = require('node:fs');
-const { join, dirname } = require('node:path');
+const { existsSync, readFileSync, readdirSync } = require('node:fs');
+const { join, relative, resolve: resolvePath, sep } = require('node:path');
+const { parseCrFindings } = require('./report-parser.js');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
+
+const MAX_SEEN_RUNS = 50;
 
 function knownIssuesFile(projectRoot) {
   return join(projectRoot, '.optcode', 'known-issues.json');
 }
 
 function loadKnownIssues(projectRoot) {
-  const file = knownIssuesFile(projectRoot);
-  if (!existsSync(file)) return [];
-  try {
-    return JSON.parse(readFileSync(file, 'utf8'));
-  } catch { return []; }
+  return readJsonFile(knownIssuesFile(projectRoot), { defaultValue: [], validate: Array.isArray });
 }
 
 function saveKnownIssues(projectRoot, issues) {
-  const file = knownIssuesFile(projectRoot);
-  const dir = dirname(file);
-  mkdirSync(dir, { recursive: true });
-  const tmp = file + '.tmp.' + process.pid;
-  writeFileSync(tmp, JSON.stringify(issues, null, 2), 'utf8');
-  renameSync(tmp, file);
+  writeJsonFile(knownIssuesFile(projectRoot), issues, { validate: Array.isArray });
 }
 
 function makeFingerprint(dimension, title, file) {
@@ -44,37 +40,38 @@ function dimensionFromFilename(filename) {
   return match ? match[1] : null;
 }
 
-function parseCrReport(content, filenameDimension) {
-  const findings = [];
-  const dimensionMatch = content.match(/^dimension:\s*(.+)$/m);
-  const dimension = dimensionMatch ? dimensionMatch[1].trim() : (filenameDimension || 'unknown');
-
-  const issuePattern = /###\s+(?:ISSUE-\d+|[A-Za-z-]+:ISSUE-\d+):\s*(.+)/g;
-  let match;
-  while ((match = issuePattern.exec(content)) !== null) {
-    const title = match[1].trim();
-    const afterTitle = content.slice(match.index);
-    const fileMatch = afterTitle.match(/\*\*文件\*\*:\s*`([^`]+)`/);
-    const severityMatch = afterTitle.match(/\*\*严重程度\*\*:\s*(high|medium|low)/);
-    if (fileMatch) {
-      findings.push({
-        dimension,
-        title,
-        file: fileMatch[1],
-        severity: severityMatch ? severityMatch[1] : 'medium',
-      });
-    }
-  }
-  return findings;
+function normalizeRunId(projectRoot, workDir, explicitRunId) {
+  if (explicitRunId) return String(explicitRunId);
+  const relativePath = relative(resolvePath(projectRoot), resolvePath(workDir));
+  return relativePath.split(sep).join('/') || '.';
 }
 
-function syncFromCrReports(projectRoot, workDir) {
+function parseCrReport(content, filenameDimension) {
+  const dimensionMatch = content.match(/^dimension:\s*(.+)$/m);
+  const dimension = dimensionMatch ? dimensionMatch[1].trim() : (filenameDimension || 'unknown');
+  return parseCrFindings(content, { dimension })
+    .filter(finding => finding.file)
+    .map(finding => ({
+      dimension: finding.dimension,
+      title: finding.title,
+      file: finding.file,
+      severity: finding.severity || 'medium',
+    }));
+}
+
+function syncFromCrReports(projectRoot, workDir, options = {}) {
   const crDir = join(workDir, 'cr');
   if (!existsSync(crDir)) return;
 
   const issues = loadKnownIssues(projectRoot);
   const now = new Date().toISOString();
-  const reports = readdirSync(crDir).filter(f => f.endsWith('.md'));
+  const runId = normalizeRunId(projectRoot, workDir, options.runId);
+  const allowedDimensions = options.dimensions ? new Set(options.dimensions) : null;
+  const reports = readdirSync(crDir).filter((file) => {
+    if (!file.endsWith('.md')) return false;
+    const dimension = dimensionFromFilename(file);
+    return !allowedDimensions || allowedDimensions.has(dimension);
+  });
 
   for (const report of reports) {
     const content = readFileSync(join(crDir, report), 'utf8');
@@ -85,7 +82,12 @@ function syncFromCrReports(projectRoot, workDir) {
       const existing = issues.find(i => i.id === id);
       if (existing) {
         existing.last_seen = now;
-        existing.run_count += 1;
+        const seenRuns = Array.isArray(existing.seen_runs) ? existing.seen_runs : [];
+        if (!seenRuns.includes(runId)) {
+          existing.run_count = (Number(existing.run_count) || 0) + 1;
+          seenRuns.push(runId);
+          existing.seen_runs = seenRuns.slice(-MAX_SEEN_RUNS);
+        }
         if (existing.status === 'resolved' && !existing.permanently_resolved) {
           existing.status = 'active';
         }
@@ -99,6 +101,7 @@ function syncFromCrReports(projectRoot, workDir) {
           first_seen: now,
           last_seen: now,
           run_count: 1,
+          seen_runs: [runId],
           status: 'active',
           deferred_reason: null,
         });
@@ -190,6 +193,7 @@ function suggestRules(projectRoot) {
 
 // CLI
 if (require.main === module) {
+  guardCli(() => {
   const [,, command, ...rest] = process.argv;
   const projectRoot = process.cwd();
 
@@ -197,7 +201,11 @@ if (require.main === module) {
     case 'sync': {
       const workDir = rest[0];
       if (!workDir) { console.error('Usage: known-issues.js sync <workDir>'); process.exit(1); }
-      syncFromCrReports(projectRoot, workDir);
+      const dimensionsIndex = rest.indexOf('--dimensions');
+      const dimensions = dimensionsIndex >= 0
+        ? (rest[dimensionsIndex + 1] || '').split(',').map(value => value.trim()).filter(Boolean)
+        : null;
+      syncFromCrReports(projectRoot, workDir, { dimensions });
       console.log('Synced known issues from CR reports.');
       break;
     }
@@ -232,6 +240,7 @@ if (require.main === module) {
       console.error('Usage: known-issues.js <sync|context|defer|resolve|list|suggest-rules> [args]');
       process.exit(1);
   }
+  });
 }
 
-module.exports = { loadKnownIssues, saveKnownIssues, syncFromCrReports, getContext, defer, resolve, knownIssuesFile };
+module.exports = { loadKnownIssues, saveKnownIssues, syncFromCrReports, parseCrReport, dimensionFromFilename, normalizeRunId, getContext, defer, resolve, knownIssuesFile };

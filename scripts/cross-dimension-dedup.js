@@ -17,9 +17,12 @@
  * Output: JSON with original findings, merged groups, and deduplicated result.
  */
 const { createHash } = require('node:crypto');
-const { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } = require('node:fs');
+const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { join, dirname } = require('node:path');
 const { readFrontmatter } = require('./workflow-lib.js');
+const { parseCrFindings } = require('./report-parser.js');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
 
 // ---------------------------------------------------------------------------
 // Finding extraction (unchanged logic)
@@ -38,38 +41,21 @@ function extractFindings(crDir) {
     const dimMatch = file.match(/^([a-z][\w-]*)-(?:round-\d+|pass|failed)\.md$/);
     const dimension = dimMatch ? dimMatch[1] : fm.dimension || 'unknown';
 
-    const issueMatches = [...text.matchAll(/^###\s+(?:([A-Za-z][\w-]*):)?(ISSUE-\d+):\s*(.+)$/gm)];
-    for (const match of issueMatches) {
-      const start = match.index;
-      const nextIssue = text.indexOf('\n### ', start + 1);
-      const block = text.slice(start, nextIssue > 0 ? nextIssue : text.length);
-
-      const filePath = parseField(block, '文件');
-      const location = parseField(block, '位置');
-      const fixProposal = parseField(block, '修复方案');
-      const description = parseField(block, '问题描述');
-      const severity = parseField(block, '严重程度');
-
+    for (const finding of parseCrFindings(text, { dimension, sourceReport: file })) {
       findings.push({
-        id: `${match[1] || dimension}:${match[2]}`,
-        dimension,
-        title: match[3],
-        file: filePath,
-        location,
-        description,
-        fixProposal,
-        severity,
+        id: finding.id,
+        dimension: finding.dimension,
+        title: finding.title,
+        file: finding.file,
+        location: finding.location,
+        description: finding.description,
+        fixProposal: finding.fix_proposal,
+        severity: finding.severity,
         sourceReport: file,
       });
     }
   }
   return findings;
-}
-
-function parseField(block, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp(`- \\*\\*${escaped}\\*\\*:\\s*([^\\n]+)`));
-  return match ? match[1].trim() : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,24 +162,18 @@ function getRegistryPath(workDir) {
 }
 
 function loadRegistry(registryPath) {
-  if (!existsSync(registryPath)) {
-    return { version: 1, entries: [] };
-  }
-  try {
-    const raw = readFileSync(registryPath, 'utf8');
-    const registry = JSON.parse(raw);
-    if (!registry.version) registry.version = 1;
-    if (!Array.isArray(registry.entries)) registry.entries = [];
-    return registry;
-  } catch {
-    return { version: 1, entries: [] };
-  }
+  const registry = readJsonFile(registryPath, {
+    defaultValue: { version: 1, entries: [] },
+    validate: value => value && typeof value === 'object' && Array.isArray(value.entries),
+  });
+  if (!registry.version) registry.version = 1;
+  return registry;
 }
 
 function saveRegistry(registryPath, registry) {
-  const dir = dirname(registryPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(registryPath, JSON.stringify(registry, null, 2) + '\n');
+  writeJsonFile(registryPath, registry, {
+    validate: value => value && typeof value === 'object' && Array.isArray(value.entries),
+  });
 }
 
 /**
@@ -214,9 +194,9 @@ function updateRegistry(registryPath, findings, runId) {
     const existing = registry.entries.find(e => e.fingerprint === fp);
     if (existing) {
       existing.last_seen = now;
-      existing.seen_count = (existing.seen_count || 1) + 1;
       if (!existing.run_ids.includes(runId)) {
         existing.run_ids.push(runId);
+        existing.seen_count = (existing.seen_count || 1) + 1;
       }
       // Reactivate if it was resolved
       if (existing.status === 'resolved') {
@@ -490,7 +470,7 @@ function handleRegistryCommand(args) {
   process.exit(1);
 }
 
-if (require.main === module) main();
+if (require.main === module) guardCli(main);
 
 module.exports = {
   extractFindings,

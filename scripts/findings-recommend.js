@@ -187,7 +187,7 @@ function check(toolInput) {
 }
 
 if (require.main === module) {
-  const input = JSON.parse(readFileSync('/dev/stdin', 'utf8'));
+const input = JSON.parse(readFileSync(0, 'utf8'));
   const result = check(input);
   console.log(JSON.stringify(result));
   process.exit(result.blocked ? 1 : 0);

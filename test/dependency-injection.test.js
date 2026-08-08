@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { createDeps, seedState, getFile } = require('./helpers.js');
 const {
   initState, readState, writeState, appendAudit,
-  startDimension, recordCrResult, readAuditLog, getResumePoint,
+  startDimension, recordCrResult, recordActivationSet, recordFixResult, readAuditLog, getResumePoint,
   findCrReport, detectStagnation, DIMENSIONS
 } = require('../scripts/workflow-lib.js');
 
@@ -82,6 +82,40 @@ describe('Dependency Injection — workflow-lib', () => {
     const resume = getResumePoint('/work', deps);
     assert.equal(resume.action, 'start_dimension');
     assert.equal(resume.dimension, DIMENSIONS[0]);
+  });
+
+  it('recordActivationSet skips pending dimensions outside the activated set', () => {
+    const deps = createDeps();
+    initState('/work', ['a.js'], 'HEAD', ['style'], {}, deps);
+    recordActivationSet('/work', ['design', 'security'], deps);
+    const state = readState('/work', deps);
+    assert.equal(state.dimensions.design.status, 'pending');
+    assert.equal(state.dimensions.security.status, 'pending');
+    assert.equal(state.dimensions.style.status, 'skipped');
+    assert.equal(state.dimensions['dead-code'].status, 'skipped');
+  });
+
+  it('recordFixResult marks a fully verified fix as pass', () => {
+    const deps = createDeps();
+    initState('/work', ['a.js'], 'HEAD', [], {}, deps);
+    deps._files.set('/work/cr/design-round-1.md', '### design:ISSUE-001: test\n');
+    recordCrResult('/work', 'design', 1, 'needs_fix', 1, deps);
+    recordFixResult('/work', 'design', 1, 'fixed', 1, 'DONE', deps);
+    const state = readState('/work', deps);
+    assert.equal(state.dimensions.design.status, 'pass');
+    assert.equal(state.dimensions.design.issues_fixed, 1);
+  });
+
+  it('recordFixResult keeps partial fixes eligible for another round', () => {
+    const deps = createDeps();
+    initState('/work', ['a.js'], 'HEAD', [], {}, deps);
+    deps._files.set('/work/cr/design-round-1.md', '### design:ISSUE-001: one\n### design:ISSUE-002: two\n');
+    recordCrResult('/work', 'design', 1, 'needs_fix', 2, deps);
+    recordFixResult('/work', 'design', 1, 'partial', 1, 'DONE_WITH_CONCERNS', deps);
+    const state = readState('/work', deps);
+    assert.equal(state.dimensions.design.status, 'needs_fix');
+    assert.equal(state.dimensions.design.round, 2);
+    assert.equal(state.dimensions.design.issues_fixed, 1);
   });
 
   it('findCrReport uses deps.existsSync', () => {

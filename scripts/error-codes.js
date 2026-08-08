@@ -11,18 +11,24 @@ const ERROR_CODES = Object.freeze({
   // State errors
   E_STATE_MISSING: { retryable: false, category: 'state', message: 'state.json not found or uninitialized' },
   E_STATE_CORRUPT: { retryable: false, category: 'state', message: 'state.json is corrupt and no valid backup exists' },
+  E_STORE_CORRUPT: { retryable: false, category: 'state', message: 'persistent JSON store is corrupt and no valid backup exists' },
   E_OCC_CONFLICT: { retryable: true, category: 'state', message: 'optimistic concurrency conflict on state write' },
 
   // Evidence bundle errors
   E_BUNDLE_MISSING: { retryable: false, category: 'evidence', message: 'evidence bundle not found' },
   E_BUNDLE_TAMPERED: { retryable: false, category: 'evidence', message: 'evidence bundle integrity hash mismatch' },
   E_BUNDLE_DRIFTED: { retryable: false, category: 'evidence', message: 'workspace drifted since evidence bundle was frozen' },
+  E_BUNDLE_INVALID: { retryable: false, category: 'evidence', message: 'evidence bundle is malformed or has an invalid schema' },
+  E_BUNDLE_VERSION_UNSUPPORTED: { retryable: false, category: 'evidence', message: 'evidence bundle version is unsupported' },
 
   // Fix errors
   E_FIX_LOCK_TIMEOUT: { retryable: true, category: 'fix', message: 'could not acquire fix report lock within timeout' },
   E_FIX_REVISION_CONFLICT: { retryable: true, category: 'fix', message: 'fix report revision mismatch (stale agent)' },
   E_FIX_REGRESSION: { retryable: false, category: 'fix', message: 'fix introduced a regression' },
   E_FIX_BLOCKED: { retryable: false, category: 'fix', message: 'fix is blocked and cannot proceed' },
+  E_MUTATION_CHECKPOINT_MISSING: { retryable: false, category: 'fix', message: 'mutation checkpoint is missing' },
+  E_MUTATION_HEAD_MOVED: { retryable: false, category: 'fix', message: 'HEAD moved after the mutation checkpoint was captured' },
+  E_MUTATION_ROLLBACK_INCOMPLETE: { retryable: false, category: 'fix', message: 'rollback did not restore the captured working-tree state' },
 
   // Gate errors
   E_GATE_FAILED: { retryable: false, category: 'gate', message: 'postcondition gate check failed' },
@@ -47,6 +53,15 @@ const ERROR_CODES = Object.freeze({
   E_DIMENSION_EXCEEDED: { retryable: false, category: 'workflow', message: 'dimension exceeded maximum round count' },
   E_STAGNATION: { retryable: false, category: 'workflow', message: 'fix loop stagnation detected' },
   E_BLAST_RADIUS: { retryable: false, category: 'workflow', message: 'blast radius exceeds auto-fix threshold' },
+});
+
+const CLI_EXIT_CODES = Object.freeze({
+  OK: 0,
+  FAILURE: 1,
+  USAGE: 2,
+  INVALID_ARTIFACT: 3,
+  INVALID_STATE: 3,
+  DRIFT: 4,
 });
 
 function createError(code, details = {}) {
@@ -78,4 +93,4 @@ function classify(err) {
   return { code: 'UNKNOWN', category: 'unknown', retryable: false, message: err.message };
 }
 
-module.exports = { ERROR_CODES, createError, isRetryable, classify };
+module.exports = { ERROR_CODES, CLI_EXIT_CODES, createError, isRetryable, classify };

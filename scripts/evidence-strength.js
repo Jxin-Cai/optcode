@@ -15,7 +15,7 @@
  *   node evidence-strength.js validate <report-path>
  */
 const { existsSync, readFileSync } = require('node:fs');
-const { readFrontmatter } = require('./workflow-lib.js');
+const { splitIssueBlocks } = require('./report-parser.js');
 
 const EVIDENCE_LEVELS = {
   missing: {
@@ -121,22 +121,14 @@ function validateReport(reportPath) {
   if (!existsSync(reportPath)) return { valid: false, error: 'file not found' };
   const text = readFileSync(reportPath, 'utf8');
 
-  const issueMatches = [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)[^\n]*$/gm)];
+  const issues = splitIssueBlocks(text);
   const violations = [];
 
-  for (let i = 0; i < issueMatches.length; i++) {
-    const start = issueMatches[i].index;
-    const end = i + 1 < issueMatches.length ? issueMatches[i + 1].index : text.length;
-    const block = text.slice(start, end);
-
-    const id = (block.match(/^###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)/) || [])[1] || 'unknown';
-    const confidenceMatch = block.match(/- \*\*置信度\*\*:\s*(\d+)/);
-    const verificationMatch = block.match(/- \*\*验证方式\*\*:\s*([^\n]+)/);
-
-    if (!confidenceMatch || !verificationMatch) continue;
-
-    const confidence = Number(confidenceMatch[1]);
-    const verification = verificationMatch[1].trim();
+  for (const issue of issues) {
+    const id = issue.issue_id;
+    if (!issue.fields['置信度'] || !issue.fields['验证方式']) continue;
+    const confidence = Number(issue.fields['置信度']);
+    const verification = issue.fields['验证方式'];
     const level = classifyVerification(verification);
     const ceiling = getCeiling(level);
 
@@ -154,7 +146,7 @@ function validateReport(reportPath) {
 
   return {
     valid: violations.length === 0,
-    issues_checked: issueMatches.length,
+    issues_checked: issues.length,
     violations,
   };
 }
@@ -254,23 +246,15 @@ function validateReportWithProvenance(reportPath) {
   if (!existsSync(reportPath)) return { valid: false, error: 'file not found' };
   const text = readFileSync(reportPath, 'utf8');
 
-  const issueMatches = [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)[^\n]*$/gm)];
+  const issues = splitIssueBlocks(text);
   const violations = [];
   const provenanceStats = { 'host-observed': 0, 'deterministic-derived': 0, 'ai-reviewed': 0, 'unavailable': 0 };
 
-  for (let i = 0; i < issueMatches.length; i++) {
-    const start = issueMatches[i].index;
-    const end = i + 1 < issueMatches.length ? issueMatches[i + 1].index : text.length;
-    const block = text.slice(start, end);
-
-    const id = (block.match(/^###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)/) || [])[1] || 'unknown';
-    const confidenceMatch = block.match(/- \*\*置信度\*\*:\s*(\d+)/);
-    const verificationMatch = block.match(/- \*\*验证方式\*\*:\s*([^\n]+)/);
-
-    if (!confidenceMatch || !verificationMatch) continue;
-
-    const confidence = Number(confidenceMatch[1]);
-    const verification = verificationMatch[1].trim();
+  for (const issue of issues) {
+    const id = issue.issue_id;
+    if (!issue.fields['置信度'] || !issue.fields['验证方式']) continue;
+    const confidence = Number(issue.fields['置信度']);
+    const verification = issue.fields['验证方式'];
     const evidenceLevel = classifyVerification(verification);
     const provenance = classifyProvenance(verification);
     const adjustedCeiling = getProvenanceAdjustedCeiling(evidenceLevel, provenance);
@@ -292,7 +276,7 @@ function validateReportWithProvenance(reportPath) {
 
   return {
     valid: violations.length === 0,
-    issues_checked: issueMatches.length,
+    issues_checked: issues.length,
     provenance_distribution: provenanceStats,
     violations,
   };

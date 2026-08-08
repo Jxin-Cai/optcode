@@ -9,41 +9,53 @@
  *   node evidence-bundle.js freeze <work-dir>   — create immutable bundle
  *   node evidence-bundle.js read <work-dir>     — read existing bundle (exits 1 if absent)
  *   node evidence-bundle.js validate <work-dir> — check bundle integrity vs current state
+ *   node evidence-bundle.js migrate <work-dir>  — migrate a valid v1 bundle to v2
  */
-const { existsSync, readFileSync, writeFileSync, readdirSync, statSync } = require('node:fs');
-const { join, relative } = require('node:path');
-const { execSync } = require('node:child_process');
+const { existsSync, readFileSync, readdirSync, statSync } = require('node:fs');
+const { join } = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { ensureDir, readState, appendAudit, atomicReplace } = require('./workflow-lib.js');
+const { readState, appendAudit, atomicReplace } = require('./workflow-lib.js');
+const { CLI_EXIT_CODES, createError } = require('./error-codes.js');
 
 const BUNDLE_FILE = 'evidence-bundle.json';
-const BUNDLE_VERSION = 1;
+const BUNDLE_SCHEMA = 'optcode/evidence-bundle';
+const BUNDLE_VERSION = 2;
 
 function sha256(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function gitHead() {
+function runGit(args, cwd) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: 10_000,
+    maxBuffer: 10 * 1024 * 1024,
+  }).trim();
+}
+
+function gitHead(cwd) {
   try {
-    return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+    return runGit(['rev-parse', 'HEAD'], cwd);
   } catch { return null; }
 }
 
-function gitTreeHash() {
+function gitIndexTreeHash(cwd) {
   try {
-    return execSync('git write-tree', { encoding: 'utf8' }).trim();
+    return runGit(['write-tree'], cwd);
   } catch { return null; }
 }
 
-function gitBranch() {
+function gitBranch(cwd) {
   try {
-    return execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+    return runGit(['rev-parse', '--abbrev-ref', 'HEAD'], cwd);
   } catch { return null; }
 }
 
-function gitDirtyFiles() {
+function gitDirtyFiles(cwd) {
   try {
-    const out = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
+    const out = runGit(['status', '--porcelain'], cwd);
     return out ? out.split('\n').map(l => l.slice(3)) : [];
   } catch { return []; }
 }
@@ -102,24 +114,45 @@ function collectFileManifest(targetPaths, limits = EVIDENCE_LIMITS) {
   return { manifest, discovery };
 }
 
-function freeze(workDir) {
+function collectGitContext(cwd) {
+  return {
+    head_commit: gitHead(cwd),
+    index_tree_hash: gitIndexTreeHash(cwd),
+    branch: gitBranch(cwd),
+    dirty_files: gitDirtyFiles(cwd),
+  };
+}
+
+function normalizeGitContext(gitContext) {
+  const normalized = { ...gitContext };
+  if (!Object.hasOwn(normalized, 'index_tree_hash')) {
+    normalized.index_tree_hash = normalized.tree_hash ?? null;
+  }
+  delete normalized.tree_hash;
+  return normalized;
+}
+
+function computeIntegrity(bundle) {
+  return sha256(JSON.stringify({ context: bundle.context, manifest: bundle.manifest }));
+}
+
+function freeze(workDir, options = {}) {
   const state = readState(workDir);
-  if (!state) throw Object.assign(new Error('state not initialized'), { code: 'E_STATE_MISSING' });
+  if (!state) throw createError('E_STATE_MISSING');
 
   const targetPaths = state.target_paths || [];
   const baseCommit = state.base_commit;
 
   const { manifest, discovery } = collectFileManifest(targetPaths);
+  const gitContext = normalizeGitContext(options.gitContext || collectGitContext(state.project_root || process.cwd()));
   const bundle = Object.freeze({
+    schema: BUNDLE_SCHEMA,
     version: BUNDLE_VERSION,
     frozen_at: new Date().toISOString(),
     sealed: true,
     context: Object.freeze({
       base_commit: baseCommit,
-      head_commit: gitHead(),
-      tree_hash: gitTreeHash(),
-      branch: gitBranch(),
-      dirty_files: gitDirtyFiles(),
+      ...gitContext,
       mode: state.mode,
       resolved_mode: state.resolved_mode,
       active_dimensions: Object.keys(state.dimensions).filter(d => state.dimensions[d].status !== 'skipped'),
@@ -132,7 +165,7 @@ function freeze(workDir) {
 
   const bundleWithIntegrity = {
     ...bundle,
-    integrity: sha256(JSON.stringify({ context: bundle.context, manifest: bundle.manifest })),
+    integrity: computeIntegrity(bundle),
   };
 
   const bundlePath = join(workDir, BUNDLE_FILE);
@@ -152,23 +185,78 @@ function read(workDir) {
   return JSON.parse(readFileSync(bundlePath, 'utf8'));
 }
 
-function validate(workDir) {
-  const bundle = read(workDir);
+function artifactVersion(bundle) {
+  return Number(bundle?.version);
+}
+
+function migrate(workDir) {
+  let bundle;
+  try {
+    bundle = read(workDir);
+  } catch (error) {
+    return { migrated: false, valid: false, code: 'E_BUNDLE_INVALID', error: error.message };
+  }
+  if (!bundle) return { migrated: false, valid: false, code: 'E_BUNDLE_MISSING' };
+  const version = artifactVersion(bundle);
+  if (version === BUNDLE_VERSION && bundle.schema === BUNDLE_SCHEMA) {
+    return { migrated: false, valid: true, from_version: version, to_version: BUNDLE_VERSION, bundle };
+  }
+  if (version !== 1) {
+    return { migrated: false, valid: false, code: 'E_BUNDLE_VERSION_UNSUPPORTED', version };
+  }
+  if (computeIntegrity(bundle) !== bundle.integrity) {
+    return { migrated: false, valid: false, code: 'E_BUNDLE_TAMPERED' };
+  }
+
+  const context = normalizeGitContext(bundle.context || {});
+  const migratedBundle = {
+    ...bundle,
+    schema: BUNDLE_SCHEMA,
+    version: BUNDLE_VERSION,
+    context,
+    migrated_from_version: 1,
+  };
+  migratedBundle.integrity = computeIntegrity(migratedBundle);
+  atomicReplace(join(workDir, BUNDLE_FILE), JSON.stringify(migratedBundle, null, 2) + '\n');
+  appendAudit(workDir, { type: 'evidence_bundle_migrated', from_version: 1, to_version: BUNDLE_VERSION });
+  return { migrated: true, valid: true, from_version: 1, to_version: BUNDLE_VERSION, bundle: migratedBundle };
+}
+
+function validate(workDir, options = {}) {
+  let bundle;
+  try {
+    bundle = read(workDir);
+  } catch (error) {
+    return { valid: false, error: error.message, code: 'E_BUNDLE_INVALID' };
+  }
   if (!bundle) return { valid: false, error: 'no evidence bundle found', code: 'E_BUNDLE_MISSING' };
 
   const violations = [];
+  const context = bundle.context || {};
+  const manifest = bundle.manifest || {};
+  const version = artifactVersion(bundle);
+  if (![1, BUNDLE_VERSION].includes(version)) {
+    return { valid: false, code: 'E_BUNDLE_VERSION_UNSUPPORTED', version, violation_count: 1, violations: [
+      { type: 'unsupported_version', version, supported_versions: [1, BUNDLE_VERSION] },
+    ] };
+  }
+  if (version === BUNDLE_VERSION && bundle.schema !== BUNDLE_SCHEMA) {
+    violations.push({ type: 'schema_invalid', expected: BUNDLE_SCHEMA, actual: bundle.schema ?? null });
+  }
 
-  const recomputedIntegrity = sha256(JSON.stringify({ context: bundle.context, manifest: bundle.manifest }));
+  const recomputedIntegrity = computeIntegrity(bundle);
   if (recomputedIntegrity !== bundle.integrity) {
     violations.push({ type: 'integrity_tampered', message: 'bundle integrity hash mismatch — file was modified after freeze' });
   }
 
-  const currentHead = gitHead();
-  if (bundle.context.head_commit && currentHead && bundle.context.head_commit !== currentHead) {
-    violations.push({ type: 'head_moved', frozen: bundle.context.head_commit, current: currentHead });
+  const currentHead = options.currentHead !== undefined
+    ? options.currentHead
+    : gitHead(options.cwd || process.cwd());
+  if (context.head_commit && currentHead && context.head_commit !== currentHead) {
+    violations.push({ type: 'head_moved', frozen: context.head_commit, current: currentHead });
   }
 
-  for (const [filePath, meta] of Object.entries(bundle.manifest)) {
+  for (const [filePath, meta] of Object.entries(manifest)) {
     if (!existsSync(filePath)) {
       violations.push({ type: 'file_deleted', path: filePath });
       continue;
@@ -184,10 +272,17 @@ function validate(workDir) {
     valid: violations.length === 0,
     frozen_at: bundle.frozen_at,
     validated_at: new Date().toISOString(),
-    file_count: Object.keys(bundle.manifest).length,
+    schema: version === 1 ? 'legacy/v1' : bundle.schema,
+    version,
+    file_count: Object.keys(manifest).length,
     violation_count: violations.length,
     violations,
   };
+  if (!result.valid) {
+    if (violations.some(violation => violation.type === 'integrity_tampered')) result.code = 'E_BUNDLE_TAMPERED';
+    else if (violations.some(violation => violation.type === 'schema_invalid')) result.code = 'E_BUNDLE_INVALID';
+    else result.code = 'E_BUNDLE_DRIFTED';
+  }
 
   appendAudit(workDir, {
     type: 'evidence_bundle_validated',
@@ -201,8 +296,9 @@ function validate(workDir) {
 function main() {
   const [cmd, workDir] = process.argv.slice(2);
   if (!cmd || !workDir) {
-    process.stderr.write('用法: node evidence-bundle.js <freeze|read|validate> <work-dir>\n');
-    process.exit(1);
+    process.stderr.write('用法: node evidence-bundle.js <freeze|read|validate|migrate> <work-dir>\n');
+    process.exitCode = CLI_EXIT_CODES.USAGE;
+    return;
   }
 
   switch (cmd) {
@@ -220,7 +316,8 @@ function main() {
       const bundle = read(workDir);
       if (!bundle) {
         process.stderr.write('no evidence bundle found\n');
-        process.exit(1);
+        process.exitCode = CLI_EXIT_CODES.INVALID_ARTIFACT;
+        break;
       }
       console.log(JSON.stringify(bundle, null, 2));
       break;
@@ -228,14 +325,26 @@ function main() {
     case 'validate': {
       const result = validate(workDir);
       console.log(JSON.stringify(result, null, 2));
-      if (!result.valid) process.exit(1);
+      if (!result.valid) process.exitCode = result.code === 'E_BUNDLE_DRIFTED'
+        ? CLI_EXIT_CODES.DRIFT
+        : CLI_EXIT_CODES.INVALID_ARTIFACT;
+      break;
+    }
+    case 'migrate': {
+      const result = migrate(workDir);
+      console.log(JSON.stringify({ ...result, bundle: undefined }, null, 2));
+      if (!result.valid) process.exitCode = CLI_EXIT_CODES.INVALID_ARTIFACT;
       break;
     }
     default:
       process.stderr.write(`unknown command: ${cmd}\n`);
-      process.exit(1);
+      process.exitCode = CLI_EXIT_CODES.USAGE;
   }
 }
 
 if (require.main === module) main();
-module.exports = { freeze, read, validate };
+module.exports = {
+  BUNDLE_FILE, BUNDLE_SCHEMA, BUNDLE_VERSION,
+  freeze, read, validate, migrate, computeIntegrity, normalizeGitContext,
+  collectFileManifest, collectGitContext,
+};

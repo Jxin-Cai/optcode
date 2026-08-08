@@ -21,10 +21,10 @@ describe('fail-closed safety', () => {
     });
   });
 
-  describe('computeBlastRadius with injected failing execSync', () => {
+  describe('computeBlastRadius with injected failing execFileSync', () => {
     it('returns score=100 critical when git fails', () => {
       const deps = {
-        execSync: () => { throw new Error('git command failed'); },
+        execFileSync: () => { throw new Error('git command failed'); },
       };
       const result = computeBlastRadius('HEAD~1', null, deps);
       assert.equal(result.score, 100);
@@ -40,8 +40,8 @@ describe('fail-closed safety', () => {
 
     it('returns normal result when git succeeds with no changes', () => {
       const deps = {
-        execSync: (cmd) => {
-          if (cmd.includes('--name-only')) return '';
+        execFileSync: (_command, args) => {
+          if (args.includes('--name-only')) return '';
           return '';
         },
       };

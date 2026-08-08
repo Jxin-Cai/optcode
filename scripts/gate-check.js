@@ -15,6 +15,9 @@ const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { readState, readFrontmatter, appendAudit, FIX_STATUSES } = require('./workflow-lib.js');
 const { scanText } = require('./privacy-scan.js');
+const { countIssueRows, parseIssueField, splitIssueBlocks: parseIssueBlocks } = require('./report-parser.js');
+const { failure, success } = require('./cli-result.js');
+const { CLI_EXIT_CODES } = require('./error-codes.js');
 
 function checkPrivacy(text) {
   const findings = scanText(text);
@@ -26,18 +29,7 @@ function result(gate, pass, reason = '') {
 }
 
 function splitIssueBlocks(text) {
-  const matches = [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?ISSUE-\d+[^\n]*$/gm)];
-  return matches.map((match, index) => {
-    const start = match.index;
-    const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
-    return text.slice(start, end);
-  });
-}
-
-function parseIssueField(block, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp(`- \\*\\*${escaped}\\*\\*:\\s*([^\\n]+)`));
-  return match ? match[1].trim() : null;
+  return parseIssueBlocks(text).map(issue => issue.block);
 }
 
 function validateCrIssues(text, expectedCount) {
@@ -193,7 +185,7 @@ function checkGate(workDir, gateId) {
       if (fm.result === 'failed' && fixed !== 0) {
         return result(gateId, false, 'failed result requires fixed_count to be 0');
       }
-      const rows = [...text.matchAll(/\|\s*(?:[A-Za-z][\w-]*:)?ISSUE-\d+\s*\|/g)].length;
+      const rows = countIssueRows(text);
       if (rows > 0 && rows !== total) {
         return result(gateId, false, `fix report table has ${rows} ISSUE rows but total_count is ${total}`);
       }
@@ -241,15 +233,24 @@ function main() {
   const workDir = process.argv[2];
   const gateId = process.argv[3];
   if (!workDir || !gateId) {
-    process.stderr.write('用法: node gate-check.js <work-dir> <gate-id>\n');
-    process.exit(1);
+    process.stderr.write(`${JSON.stringify(failure(Object.assign(new Error('用法: node gate-check.js <work-dir> <gate-id>'), { code: 'E_USAGE' }), 'E_USAGE'))}\n`);
+    process.exitCode = CLI_EXIT_CODES.USAGE;
+    return;
   }
-  const checked = checkGate(workDir, gateId);
-  if (existsSync(workDir)) {
-    appendAudit(workDir, { type: 'gate_result', gate: gateId, pass: checked.pass, reason: checked.reason || '' });
+  try {
+    const checked = checkGate(workDir, gateId);
+    if (existsSync(workDir)) {
+      appendAudit(workDir, { type: 'gate_result', gate: gateId, pass: checked.pass, reason: checked.reason || '' });
+    }
+    const output = checked.pass
+      ? success(checked)
+      : { ...failure(Object.assign(new Error(checked.reason || 'gate failed'), { code: 'E_GATE_FAILED' })), ...checked };
+    console.log(JSON.stringify(output));
+    if (!checked.pass) process.exitCode = CLI_EXIT_CODES.FAILURE;
+  } catch (error) {
+    console.log(JSON.stringify(failure(error)));
+    process.exitCode = error.code === 'E_STATE_CORRUPT' ? CLI_EXIT_CODES.INVALID_STATE : CLI_EXIT_CODES.FAILURE;
   }
-  console.log(JSON.stringify(checked));
-  if (!checked.pass) process.exit(1);
 }
 
 if (require.main === module) {

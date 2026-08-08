@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, writeFileSync } = require('node:fs');
+const { mkdirSync, mkdtempSync, readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
@@ -29,6 +29,23 @@ function runQualityGate(dir) {
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
+
+test('completed quality gate reports corrupt history without hiding its score', () => {
+  const dir = writeState({});
+  const projectRoot = mkdtempSync(join(tmpdir(), 'optcode-quality-history-'));
+  mkdirSync(join(projectRoot, '.optcode'));
+  writeFileSync(join(projectRoot, '.optcode', 'health-history.json'), '{broken');
+  const state = JSON.parse(readFileSync(join(dir, 'state.json'), 'utf8'));
+  state.status = 'completed';
+  writeFileSync(join(dir, 'state.json'), JSON.stringify(state));
+  const result = spawnSync(process.execPath, [script, dir], { cwd: projectRoot, encoding: 'utf8' });
+  assert.equal(result.status, 3, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, false);
+  assert.equal(output.code, 'E_STORE_CORRUPT');
+  assert.equal(output.history_recorded, false);
+  assert.equal(output.verdict, 'PASS');
+});
 
 test('pending dimensions force FAIL even when score is high', () => {
   const dir = writeState({ 'dead-code': 'pending' });

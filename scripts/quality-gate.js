@@ -2,17 +2,21 @@
 /**
  * optcode quality gate — computes a quality score from dimension results.
  *
- * Usage: node quality-gate.js <work-dir>
+ * Usage: node quality-gate.js <work-dir> [--no-history]
  * Output: JSON with verdict (PASS/WARN/FAIL), score, and per-dimension breakdown.
  */
 const { readState, DIMENSIONS, readFrontmatter } = require('./workflow-lib.js');
 const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
+const { failure, success } = require('./cli-result.js');
+const { CLI_EXIT_CODES } = require('./error-codes.js');
 
-const workDir = process.argv[2];
+const args = process.argv.slice(2);
+const workDir = args.find(arg => !arg.startsWith('--'));
+const noHistory = args.includes('--no-history');
 
 if (!workDir) {
-  process.stderr.write('用法: node quality-gate.js <work-dir>\n');
+  process.stderr.write('用法: node quality-gate.js <work-dir> [--no-history]\n');
   process.exit(1);
 }
 
@@ -75,10 +79,8 @@ function scoreDimension(dimState, workDir, dimension, base) {
 }
 
 function recordToHistory(workDir, gateOutput, state) {
-  try {
-    const { recordHistory } = require('./dashboard.js');
-    recordHistory(process.cwd(), workDir, gateOutput, state);
-  } catch { /* non-critical — don't break quality-gate on history failure */ }
+  const { recordHistory } = require('./dashboard.js');
+  return recordHistory(process.cwd(), workDir, gateOutput, state);
 }
 
 function main() {
@@ -148,11 +150,19 @@ function main() {
     breakdown
   };
 
-  console.log(JSON.stringify(output, null, 2));
-
-  if (state.status === 'completed') {
-    recordToHistory(workDir, output, state);
+  if (state.status === 'completed' && !noHistory) {
+    try {
+      recordToHistory(workDir, output, state);
+      output.history_recorded = true;
+    } catch (error) {
+      console.log(JSON.stringify({ ...failure(error), ...output, history_recorded: false }, null, 2));
+      process.exitCode = error.code === 'E_STORE_CORRUPT'
+        ? CLI_EXIT_CODES.INVALID_STATE
+        : CLI_EXIT_CODES.FAILURE;
+      return;
+    }
   }
+  console.log(JSON.stringify(success(output), null, 2));
 }
 
 main();

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "cli": "node scripts/optcode.js",
     "test": "node --test"
   }
 }

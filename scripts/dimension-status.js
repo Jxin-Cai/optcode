@@ -23,7 +23,7 @@ const {
   markCrReady,
   markFixRunning,
   markFixReady,
-  recordCrResult,
+  recordCrResult, recordActivationSet,
   recordFixResult,
   recordPreflightResult,
   recordDeepPlanDone,
@@ -31,14 +31,15 @@ const {
   completeWorkflow,
   DIMENSIONS
 } = require('./workflow-lib.js');
+const { failure, success, writeJsonResult } = require('./cli-result.js');
 
-function fail(msg) {
-  process.stderr.write(JSON.stringify({ error: msg }) + '\n');
-  process.exit(1);
+function fail(msg, code = 'E_COMMAND_FAILED') {
+  const error = Object.assign(new Error(msg), { code });
+  process.exit(writeJsonResult(failure(error, code)));
 }
 
 function print(value) {
-  console.log(JSON.stringify(value, null, 2));
+  writeJsonResult(success(value));
 }
 
 function parseSignals(raw) {
@@ -55,7 +56,7 @@ function parseSignals(raw) {
 function main() {
   const [workDir, command, ...args] = process.argv.slice(2);
   if (!workDir || !command) {
-    fail('用法: node dimension-status.js <work-dir> <command> [args...]');
+    fail('用法: node dimension-status.js <work-dir> <command> [args...]', 'E_USAGE');
   }
 
   try {
@@ -73,6 +74,13 @@ function main() {
         const round = Number(roundStr);
         const state = markCrRunning(workDir, dimension, round);
         print({ recorded: true, dimension, round, state: state.dimensions[dimension] });
+        break;
+      }
+      case '--activation-set': {
+        const dimensions = (args[0] || '').split(',').map(value => value.trim()).filter(Boolean);
+        if (dimensions.length === 0) fail('--activation-set needs comma-separated dimensions');
+        const state = recordActivationSet(workDir, dimensions);
+        print({ recorded: true, active_dimensions: dimensions, dimensions: state.dimensions });
         break;
       }
       case '--cr-ready': {
@@ -164,7 +172,7 @@ function main() {
         fail(`unknown command: ${command}`);
     }
   } catch (err) {
-    fail(err.message);
+    fail(err.message, err.code || 'E_COMMAND_FAILED');
   }
 }
 

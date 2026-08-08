@@ -18,6 +18,7 @@
 const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { readState, appendAudit, atomicReplace, ensureDir } = require('./workflow-lib.js');
+const { parseCrFindings } = require('./report-parser.js');
 
 const CONTRACT_FILE = 'finding-contracts.json';
 const VALID_STATUSES = ['pending', 'in_progress', 'verified', 'partial', 'blocked', 'skipped'];
@@ -171,9 +172,8 @@ function main() {
         for (const file of readdirSync(crDir).filter(f => f.endsWith('.md'))) {
           const text = readFileSync(join(crDir, file), 'utf8');
           const dim = file.replace(/-(?:round-\d+|pass|failed)\.md$/, '');
-          const ids = [...text.matchAll(/^###\s+(?:([A-Za-z][\w-]*):)?(ISSUE-\d+)/gm)];
-          for (const m of ids) {
-            findings.push({ issueId: `${m[1] || dim}:${m[2]}`, dimension: m[1] || dim, reportPath: join(crDir, file) });
+          for (const finding of parseCrFindings(text, { dimension: dim, sourceReport: file })) {
+            findings.push({ issueId: finding.id, dimension: finding.dimension, reportPath: join(crDir, file) });
           }
         }
       }

@@ -19,9 +19,10 @@
  *   node effectiveness-tracker.js compare <work-dir> <previous-work-dir>
  *   node effectiveness-tracker.js summary <work-dir>
  */
-const { existsSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
-const { readState, appendAudit, atomicReplace } = require('./workflow-lib.js');
+const { readState, appendAudit } = require('./workflow-lib.js');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
 
 const TRACKER_FILE = 'effectiveness.json';
 const HISTORY_FILE = 'effectiveness-history.json';
@@ -46,13 +47,16 @@ function trackerPath(workDir) {
 }
 
 function readTracker(workDir) {
-  const file = trackerPath(workDir);
-  if (!existsSync(file)) return null;
-  return JSON.parse(readFileSync(file, 'utf8'));
+  return readJsonFile(trackerPath(workDir), {
+    defaultValue: null,
+    validate: value => value && typeof value === 'object' && value.repair_progress && value.loop_effectiveness,
+  });
 }
 
 function writeTracker(workDir, tracker) {
-  atomicReplace(trackerPath(workDir), JSON.stringify(tracker, null, 2) + '\n');
+  writeJsonFile(trackerPath(workDir), tracker, {
+    validate: value => value && typeof value === 'object' && value.repair_progress && value.loop_effectiveness,
+  });
 }
 
 function initTracker(workDir) {
@@ -265,10 +269,7 @@ function detectPlateau(workDir, windowSize = 3) {
 
 function appendEffectivenessHistory(projectRoot, runResult) {
   const historyPath = join(projectRoot, '.optcode', HISTORY_FILE);
-  let history = [];
-  if (existsSync(historyPath)) {
-    try { history = JSON.parse(readFileSync(historyPath, 'utf8')); } catch { history = []; }
-  }
+  const history = readJsonFile(historyPath, { defaultValue: [], validate: Array.isArray });
 
   const entry = {
     run_id: runResult.run_id || `run-${Date.now()}`,
@@ -280,24 +281,20 @@ function appendEffectivenessHistory(projectRoot, runResult) {
     regressed_dimensions: runResult.regressed_dimensions || 0,
   };
 
-  history.push(entry);
-
-  const dir = join(projectRoot, '.optcode');
-  if (!existsSync(dir)) {
-    const { mkdirSync } = require('node:fs');
-    mkdirSync(dir, { recursive: true });
-  }
-  atomicReplace(historyPath, JSON.stringify(history, null, 2) + '\n');
+  const existingIndex = runResult.run_id
+    ? history.findIndex(existing => existing.run_id === runResult.run_id)
+    : -1;
+  if (existingIndex >= 0) {
+    entry.timestamp = history[existingIndex].timestamp;
+    history[existingIndex] = entry;
+  } else history.push(entry);
+  writeJsonFile(historyPath, history, { validate: Array.isArray });
   return entry;
 }
 
 function getEffectivenessHistory(projectRoot, last = 20) {
   const historyPath = join(projectRoot, '.optcode', HISTORY_FILE);
-  if (!existsSync(historyPath)) return [];
-  try {
-    const history = JSON.parse(readFileSync(historyPath, 'utf8'));
-    return history.slice(-last);
-  } catch { return []; }
+  return readJsonFile(historyPath, { defaultValue: [], validate: Array.isArray }).slice(-last);
 }
 
 function main() {
@@ -364,7 +361,7 @@ function main() {
   }
 }
 
-if (require.main === module) main();
+if (require.main === module) guardCli(main);
 module.exports = {
   recordRepairProgress, compareRuns, getSummary, readTracker, initTracker,
   judgeFixOutcome, detectPlateau, appendEffectivenessHistory, getEffectivenessHistory,

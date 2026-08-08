@@ -14,16 +14,16 @@
 const { existsSync, readFileSync, readdirSync } = require('node:fs');
 const { join } = require('node:path');
 const { readState, readFrontmatter, appendAudit } = require('./workflow-lib.js');
+const { parseCrFindings } = require('./report-parser.js');
 
 const TOLERANCE_RATIO = 0.2;
 
 function countIssueBlocks(text) {
-  return [...text.matchAll(/^#{2,4}\s+(?:[A-Za-z][\w-]*:\s*)?ISSUE-\d+/gm)].length;
+  return parseCrFindings(text).length;
 }
 
 function extractIssueIds(text) {
-  return [...text.matchAll(/^#{2,4}\s+(?:([A-Za-z][\w-]*):\s*)?(ISSUE-\d+)/gm)]
-    .map(m => `${m[1] || 'unknown'}:${m[2]}`);
+  return parseCrFindings(text).map(finding => finding.id);
 }
 
 function validate(workDir) {
@@ -35,6 +35,7 @@ function validate(workDir) {
 
   const violations = [];
   const dimensionBindings = [];
+  const findingsByReport = new Map();
 
   const crFiles = readdirSync(crDir).filter(f => f.endsWith('.md'));
 
@@ -42,9 +43,11 @@ function validate(workDir) {
     const filePath = join(crDir, file);
     const text = readFileSync(filePath, 'utf8');
     const fm = readFrontmatter(text);
-    const actualCount = countIssueBlocks(text);
-    const actualIds = extractIssueIds(text);
     const dimFromFile = file.replace(/-(?:round-\d+|pass|failed)\.md$/, '');
+    const reportFindings = parseCrFindings(text, { dimension: dimFromFile, sourceReport: file });
+    findingsByReport.set(file, reportFindings);
+    const actualCount = reportFindings.length;
+    const actualIds = reportFindings.map(finding => finding.id);
 
     const binding = {
       file,
@@ -114,16 +117,10 @@ function validate(workDir) {
   // finding on the same target file (potential overlap that should have been deduped)
   const targetFileClaims = {};
   for (const binding of dimensionBindings) {
-    for (const id of binding.actual_ids) {
-      // Extract the target code file (from CR content) — parse from ISSUE block
-      const filePath = join(crDir, binding.file);
-      if (!existsSync(filePath)) continue;
-      const reportText = readFileSync(filePath, 'utf8');
-      const fileRefs = [...reportText.matchAll(/- \*\*文件\*\*:\s*`([^`]+)`/g)].map(m => m[1]);
-      for (const targetFile of fileRefs) {
-        if (!targetFileClaims[targetFile]) targetFileClaims[targetFile] = [];
-        targetFileClaims[targetFile].push({ dimension: binding.dimension, finding_id: id });
-      }
+    for (const finding of findingsByReport.get(binding.file) || []) {
+      if (!finding.file) continue;
+      if (!targetFileClaims[finding.file]) targetFileClaims[finding.file] = [];
+      targetFileClaims[finding.file].push({ dimension: finding.dimension, finding_id: finding.id });
     }
   }
   // Flag target files claimed by 3+ dimensions (unusual, likely overlap)

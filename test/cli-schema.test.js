@@ -1,5 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync, readdirSync } = require('node:fs');
+const { join } = require('node:path');
 const { COMMANDS, AUDIENCE_LEVELS, audienceIncludes, buildSchema } = require('../scripts/cli-schema.js');
 
 describe('buildSchema', () => {
@@ -55,6 +57,18 @@ describe('COMMANDS integrity', () => {
       assert.ok(cmd.audience, `${cmd.name} missing audience`);
       assert.ok(AUDIENCE_LEVELS[cmd.audience], `${cmd.name} has invalid audience: ${cmd.audience}`);
     }
+  });
+
+  it('registers every executable script capability', () => {
+    const scriptsDir = join(__dirname, '..', 'scripts');
+    const infrastructure = new Set(['optcode.js', 'workflow-lib.js']);
+    const executable = readdirSync(scriptsDir)
+      .filter(file => file.endsWith('.js'))
+      .filter(file => readFileSync(join(scriptsDir, file), 'utf8').startsWith('#!/usr/bin/env node'))
+      .filter(file => !infrastructure.has(file))
+      .sort();
+    const registered = COMMANDS.map(command => command.script).sort();
+    assert.deepEqual(registered, executable);
   });
 });
 

@@ -9,8 +9,9 @@
  *   node intervention-ledger.js summarize <project-root>
  *   node intervention-ledger.js list <project-root> [--state <state>]
  */
-const { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } = require('node:fs');
-const { join, dirname } = require('node:path');
+const { join } = require('node:path');
+const { readJsonFile, writeJsonFile } = require('./safe-json-store.js');
+const { guardCli } = require('./cli-result.js');
 
 const STATES = Object.freeze(['pending', 'improving', 'unchanged', 'regressing', 'outcome-supported']);
 
@@ -27,22 +28,11 @@ function ledgerFile(projectRoot) {
 }
 
 function loadLedger(projectRoot, deps = {}) {
-  const _exists = deps.existsSync || existsSync;
-  const _read = deps.readFileSync || readFileSync;
-  const file = ledgerFile(projectRoot);
-  if (!_exists(file)) return [];
-  try { return JSON.parse(_read(file, 'utf8')); } catch { return []; }
+  return readJsonFile(ledgerFile(projectRoot), { defaultValue: [], validate: Array.isArray, deps });
 }
 
 function saveLedger(projectRoot, ledger, deps = {}) {
-  const _write = deps.writeFileSync || writeFileSync;
-  const _mkdir = deps.mkdirSync || mkdirSync;
-  const _rename = deps.renameSync || renameSync;
-  const file = ledgerFile(projectRoot);
-  _mkdir(dirname(file), { recursive: true });
-  const tmp = file + '.tmp.' + (deps.pid ? deps.pid() : process.pid);
-  _write(tmp, JSON.stringify(ledger, null, 2) + '\n');
-  _rename(tmp, file);
+  writeJsonFile(ledgerFile(projectRoot), ledger, { validate: Array.isArray, deps });
 }
 
 function validateTransition(currentState, newState) {
@@ -213,5 +203,5 @@ function main() {
   }
 }
 
-if (require.main === module) main();
+if (require.main === module) guardCli(main);
 module.exports = { STATES, ALLOWED_TRANSITIONS, METRIC_DIRECTIONS, loadLedger, saveLedger, recordIntervention, transitionEntry, summarizeEffectiveness, validateTransition, validateMetrics, ledgerFile };

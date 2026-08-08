@@ -113,7 +113,8 @@ function main() {
     case 'write': {
       const revIdx = rest.indexOf('--expected-revision');
       const expectedRevision = revIdx >= 0 ? Number(rest[revIdx + 1]) : undefined;
-      const content = readFileSync('/dev/stdin', 'utf8');
+      // File descriptor 0 is portable across Windows, macOS, and Linux.
+      const content = readFileSync(0, 'utf8');
       try {
         const result = writeFixReport(workDir, dimension, round, content, expectedRevision);
         console.log(JSON.stringify(result));

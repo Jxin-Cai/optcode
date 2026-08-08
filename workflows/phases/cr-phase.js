@@ -49,6 +49,14 @@ if (singleDimension) {
 }
 if (activeDimensions.length === 0) return { status: 'skipped', reason: 'no active dimensions' }
 
+const activationRecord = await agent(
+  `Run node ${pluginRoot}/scripts/dimension-status.js ${workDir} --activation-set ${activeDimensions.join(',')}. Return the JSON output exactly. This marks non-applicable pending dimensions as skipped.`,
+  { label: 'activation-record', phase: 'Activate', schema: { type: 'object', properties: { recorded: { type: 'boolean' }, active_dimensions: { type: 'array', items: { type: 'string' } } }, required: ['recorded', 'active_dimensions'] } },
+)
+if (!activationRecord || !activationRecord.recorded) {
+  return { status: 'blocked_by_gate', reason: 'activation_state_not_recorded', workDir }
+}
+
 const knownCtx = await agent(
   `Run node ${pluginRoot}/scripts/known-issues.js context. Return only the stdout output as-is.`,
   { label: 'known-issues-ctx', phase: 'Activate' },
@@ -103,16 +111,12 @@ if (findings.length > 1) {
 log(`CR barrier complete: ${validCr.length} reports, ${findings.length} findings`)
 
 await agent(
-  `Run node ${pluginRoot}/scripts/known-issues.js sync ${workDir}. This persists new findings to .optcode/known-issues.json.`,
-  { label: 'sync-issues', phase: 'CR' },
-)
-
-await agent(
   `Run node ${pluginRoot}/scripts/evidence-bundle.js freeze ${workDir}. This creates an immutable evidence bundle capturing workspace state (file hashes, git HEAD, active dimensions) before any fixes. Return the JSON output.`,
   { label: 'evidence-bundle-freeze', phase: 'CR' },
 )
 
-const qualityResults = await parallel(validCr.filter(r => r.result === 'needs_fix').map((cr) => () => agent(
+const qualityCandidates = validCr.filter(r => r.result === 'needs_fix')
+const qualityResults = await parallel(qualityCandidates.map((cr) => () => agent(
   `Run both quality validators on ${cr.reportPath}:
 1. node ${pluginRoot}/scripts/report-quality.js ${cr.reportPath} --json
 2. node ${pluginRoot}/scripts/evidence-strength.js validate ${cr.reportPath}
@@ -142,6 +146,7 @@ Return a JSON object with:
 )))
 
 const qualityFailed = (qualityResults || []).filter(Boolean).filter(r => !r.overallPass)
+const qualityUnavailable = (qualityResults || []).filter(Boolean).length !== qualityCandidates.length
 if (qualityFailed.length > 0) {
   log(`quality gates rejected ${qualityFailed.length} report(s): ${qualityFailed.map(r => `${r.dimension}(q:${r.qualityViolations || 0},e:${r.evidenceViolations || 0})`).join(', ')}`)
   const rejectedDims = new Set(qualityFailed.map(r => r.dimension))
@@ -149,7 +154,8 @@ if (qualityFailed.length > 0) {
   validCr = validCr.map(cr => rejectedDims.has(cr.dimension) ? { ...cr, result: 'failed', failReason: 'quality_gate_rejected' } : cr)
 }
 
-const syntheticChecks = await parallel(validCr.filter(r => r.result === 'needs_fix').map((cr) => () => agent(
+const syntheticCandidates = validCr.filter(r => r.result === 'needs_fix')
+const syntheticChecks = await parallel(syntheticCandidates.map((cr) => () => agent(
   `Run node ${pluginRoot}/scripts/synthetic-evidence.js ${cr.reportPath} --base-dir ${targetPaths[0] || '.'} --json. Return the JSON output.`,
   {
     label: `synthetic-check:${cr.dimension}`,
@@ -168,21 +174,31 @@ const syntheticChecks = await parallel(validCr.filter(r => r.result === 'needs_f
   },
 )))
 const syntheticFailed = (syntheticChecks || []).filter(Boolean).filter(r => !r.valid)
+const syntheticUnavailable = (syntheticChecks || []).filter(Boolean).length !== syntheticCandidates.length
 if (syntheticFailed.length > 0) {
-  log(`⚠ synthetic evidence detected in ${syntheticFailed.length} report(s) — flagging fabricated references`)
+  const rejectedDims = new Set(syntheticFailed.map(r => r.dimension).filter(Boolean))
+  findings = findings.filter(f => !rejectedDims.has(f.dimension))
+  validCr = validCr.map(cr => rejectedDims.has(cr.dimension) ? { ...cr, result: 'failed', failReason: 'synthetic_evidence' } : cr)
+  log(`⛔ synthetic evidence rejected ${syntheticFailed.length} report(s); those findings are ineligible for verification or fixing`)
 }
 
-await agent(
-  `Act as the sole CR barrier coordinator. In ${workDir}, verify every report exists, run gate-check.js for each report, and record each result with dimension-status.js --cr-done. Do these shared-state writes serially. Do not modify business code. Base commit: ${baseCommit}. Results: ${JSON.stringify(validCr)}`,
-  { label: 'cr-barrier', agentType: 'general-purpose', phase: 'CR' },
+const crBarrier = await agent(
+  `Act as the sole CR barrier coordinator. In ${workDir}, verify every report exists, run gate-check.js for each report, and record each result with dimension-status.js --cr-done. Do these shared-state writes serially. Do not modify business code. Base commit: ${baseCommit}. Results: ${JSON.stringify(validCr)}. Return {"recorded":true,"report_count":N} only after every state write succeeds.`,
+  { label: 'cr-barrier', agentType: 'general-purpose', phase: 'CR', schema: { type: 'object', properties: { recorded: { type: 'boolean' }, report_count: { type: 'integer' } }, required: ['recorded', 'report_count'] } },
 )
+if (!crBarrier || !crBarrier.recorded || crBarrier.report_count !== validCr.length) {
+  return { status: 'blocked_by_gate', reason: 'cr_barrier_incomplete', workDir }
+}
 
 const laneDepth = mode === 'deep' ? 'normal' : 'quick'
 const laneValidation = await agent(
   `Run node ${pluginRoot}/scripts/evidence-lanes.js validate ${workDir} --depth ${laneDepth}. Return the JSON output as-is.`,
   { label: 'lane-validate', phase: 'CR', schema: { type: 'object', properties: { valid: { type: 'boolean' }, confidence: { type: 'string' }, unavailable: { type: 'integer' }, degraded_lanes: { type: 'array', items: { type: 'string' } }, blocking_lanes: { type: 'array', items: { type: 'string' } } }, required: ['valid'] } },
 )
-if (laneValidation && !laneValidation.valid) {
+if (!laneValidation) {
+  return { status: 'blocked_by_gate', reason: 'lane_validation_unavailable', workDir }
+}
+if (!laneValidation.valid) {
   if (mode === 'deep') {
     log(`⛔ lane validation failed in deep mode: blocking lanes = ${(laneValidation.blocking_lanes || []).join(', ')}`)
     return { status: 'blocked_by_gate', reason: 'lane_validation_failed', blocking_lanes: laneValidation.blocking_lanes, workDir }
@@ -205,6 +221,33 @@ if (consistency && !consistency.valid) {
 }
 if (popBinding && !popBinding.valid) {
   log(`⚠ population binding: ${popBinding.violation_count} violation(s) — ${(popBinding.violations || []).map(v => v.message).slice(0, 3).join('; ')}`)
+}
+
+const aggregateGateFailures = []
+if (!consistency || !consistency.valid) aggregateGateFailures.push('score_finding_consistency')
+if (!popBinding || !popBinding.valid) aggregateGateFailures.push('population_binding')
+if (qualityUnavailable) aggregateGateFailures.push('report_quality_unavailable')
+if (qualityFailed.length > 0) aggregateGateFailures.push('report_quality')
+if (syntheticUnavailable) aggregateGateFailures.push('synthetic_evidence_unavailable')
+if (syntheticFailed.length > 0) aggregateGateFailures.push('synthetic_evidence')
+if (aggregateGateFailures.length > 0) {
+  return {
+    status: 'blocked_by_gate',
+    reason: 'cr_evidence_contract_failed',
+    failed_gates: aggregateGateFailures,
+    activeDimensions,
+    validCr,
+    findings,
+    workDir,
+  }
+}
+
+const acceptedDimensions = validCr.filter(r => r.result === 'needs_fix').map(r => r.dimension)
+if (acceptedDimensions.length > 0) {
+  await agent(
+    `Run node ${pluginRoot}/scripts/known-issues.js sync ${workDir} --dimensions ${acceptedDimensions.join(',')}. Persist only findings from reports that passed every CR evidence gate.`,
+    { label: 'sync-issues', phase: 'CR' },
+  )
 }
 
 return { activeDimensions, validCr, findings }

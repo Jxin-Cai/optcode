@@ -116,6 +116,9 @@ Resume with the same `workDir` and `baseCommit`. The Workflow must verify existi
 - `gate-check.js`: report postconditions
 - `dimension-status.js`: atomic dimension transitions
 - `quality-gate.js`: aggregate quality result
+- `evidence-bundle.js`: canonical versioned evidence snapshot and drift validation
+- `report-parser.js`: canonical ISSUE block and field parsing used by gates and analytics
+- `safe-json-store.js`: fail-closed persistent JSON storage with validated backup recovery
 - `cr-activation-check.js`: activation hints only; it cannot override explicit user dimensions
 - `dashboard.js`: observation dashboard (trend + debt + quality card)
 - `rules-loader.js`: team custom rules loader

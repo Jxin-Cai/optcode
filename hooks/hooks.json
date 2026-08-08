@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.js",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.js\"",
             "async": false
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-advisory.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-commit-advisory.js\""
           }
         ]
       }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-write-reminder.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-write-reminder.js\""
           }
         ]
       }
@@ -40,11 +40,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/stop-review-guard.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-review-guard.js\""
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/stop-findings-collector.js"
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-findings-collector.js\""
           }
         ]
       }

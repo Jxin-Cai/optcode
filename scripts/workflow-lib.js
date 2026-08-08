@@ -5,6 +5,8 @@
  */
 const _fs = require('node:fs');
 const _path = require('node:path');
+const { createError } = require('./error-codes.js');
+const { parseCrFindings } = require('./report-parser.js');
 
 const DEFAULT_DEPS = Object.freeze({
   existsSync: _fs.existsSync,
@@ -148,7 +150,10 @@ function readState(workDir, deps = {}) {
         return recovered;
       } catch { /* backup also corrupt — fall through */ }
     }
-    throw new Error(`state.json corrupt and no valid backup: ${parseErr.message}`);
+    throw createError('E_STATE_CORRUPT', {
+      message: `state.json corrupt and no valid backup: ${parseErr.message}`,
+      state_file: file,
+    });
   }
 }
 
@@ -157,10 +162,17 @@ function writeState(workDir, state, expectedSeq, deps = {}) {
   ensureDir(workDir, deps);
   const file = stateFile(workDir, deps);
   if (expectedSeq !== undefined) {
-    const current = d.existsSync(file) ? JSON.parse(d.readFileSync(file, 'utf8')) : null;
+    let current = null;
+    if (d.existsSync(file)) {
+      try {
+        current = JSON.parse(d.readFileSync(file, 'utf8'));
+      } catch (error) {
+        throw createError('E_STATE_CORRUPT', { message: `cannot update corrupt state.json: ${error.message}`, state_file: file });
+      }
+    }
     const currentSeq = current ? (current._seq || 0) : 0;
     if (currentSeq !== expectedSeq) {
-      throw new Error(`OCC conflict: expected _seq=${expectedSeq}, got ${currentSeq}`);
+      throw createError('E_OCC_CONFLICT', { message: `OCC conflict: expected _seq=${expectedSeq}, got ${currentSeq}` });
     }
   }
   if (d.existsSync(file)) {
@@ -186,7 +198,7 @@ function writeStateWithRetry(workDir, mutator, maxRetries = 3, deps = {}) {
       writeState(workDir, state, expectedSeq, deps);
       return state;
     } catch (e) {
-      if (e.message.startsWith('OCC conflict') && attempt < maxRetries - 1) continue;
+      if (e.code === 'E_OCC_CONFLICT' && attempt < maxRetries - 1) continue;
       throw e;
     }
   }
@@ -241,6 +253,7 @@ function initState(workDir, targetPaths, baseCommit, skipDimensions = [], option
     created_at: d.now(),
     updated_at: d.now(),
     target_paths: targetPaths,
+    project_root: options.project_root || null,
     base_commit: baseCommit,
     mode,
     requested_mode: options.requested_mode || mode,
@@ -375,7 +388,7 @@ function extractIssueIds(workDir, dimension, round, deps = {}) {
   const report = findCrReport(workDir, dimension, round, deps);
   if (report) {
     const text = d.readFileSync(report.path, 'utf8');
-    const ids = [...text.matchAll(/###\s+(?:[A-Za-z][\w-]*:)?(ISSUE-\d+)/g)].map(m => m[1]);
+    const ids = parseCrFindings(text, { dimension }).map(finding => finding.issue_id);
     return [...new Set(ids)];
   }
   return [];
@@ -403,25 +416,48 @@ function recordCrResult(workDir, dimension, round, result, issuesCount = 0, deps
   return state;
 }
 
+function recordActivationSet(workDir, activeDimensions, deps = {}) {
+  const active = new Set(activeDimensions);
+  const unknown = [...active].filter(dimension => !DIMENSIONS.includes(dimension));
+  if (unknown.length > 0) throw new Error(`unknown active dimension(s): ${unknown.join(', ')}`);
+  const state = writeStateWithRetry(workDir, (s) => {
+    for (const dimension of DIMENSIONS) {
+      if (!active.has(dimension) && s.dimensions[dimension]?.status === 'pending') {
+        s.dimensions[dimension].status = 'skipped';
+        s.dimensions[dimension].skip_reason = 'not activated for this target';
+      }
+    }
+  }, 3, deps);
+  appendAudit(workDir, { type: 'activation_set_recorded', active_dimensions: [...active] }, deps);
+  return state;
+}
+
 function recordFixResult(workDir, dimension, round, result, fixedCount = 0, status = 'DONE', deps = {}) {
   let needsContextAudit = false;
   const state = writeStateWithRetry(workDir, (s) => {
     const dim = s.dimensions[dimension];
     if (!dim) throw new Error(`unknown dimension: ${dimension}`);
+    const boundedFixedCount = Math.max(0, Math.min(fixedCount, Math.max(dim.issues_found - dim.issues_fixed, 0)));
     if (result === 'failed' || status === 'BLOCKED') {
       dim.status = 'failed';
-      dim.issues_fixed += fixedCount;
+      dim.issues_fixed += boundedFixedCount;
       s.current_dimension = null;
     } else if (status === 'NEEDS_CONTEXT') {
       dim.status = 'failed';
-      dim.issues_fixed += fixedCount;
+      dim.issues_fixed += boundedFixedCount;
       s.current_dimension = null;
       needsContextAudit = true;
+    } else if (['fixed', 'success'].includes(result) && status === 'DONE') {
+      dim.issues_fixed += boundedFixedCount;
+      dim.status = 'pass';
+      dim.round = round;
+      s.current_dimension = null;
+      s.current_round = round;
     } else {
-      dim.issues_fixed += fixedCount;
+      dim.issues_fixed += boundedFixedCount;
       s.current_round = round + 1;
       dim.round = round + 1;
-      dim.status = 'in_progress';
+      dim.status = 'needs_fix';
     }
   }, 3, deps);
   if (needsContextAudit) appendAudit(workDir, { type: 'fix_needs_context', dimension, round }, deps);
@@ -816,6 +852,7 @@ module.exports = {
   markFixReady,
   extractIssueIds,
   recordCrResult,
+  recordActivationSet,
   recordFixResult,
   exceedDimension,
   completeWorkflow,

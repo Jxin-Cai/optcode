@@ -16,6 +16,7 @@
  */
 const { existsSync, readFileSync } = require('node:fs');
 const { readFrontmatter } = require('./workflow-lib.js');
+const { parseIssueField, splitIssueBlocks: parseIssueBlocks } = require('./report-parser.js');
 
 const PRIVACY_PATTERNS = [
   /\/Users\/[^\s/]+/g,
@@ -47,18 +48,11 @@ const DETECTOR_TITLE_PATTERNS = [
 ];
 
 function splitIssueBlocks(text) {
-  const matches = [...text.matchAll(/^###\s+(?:[A-Za-z][\w-]*:)?ISSUE-\d+[^\n]*$/gm)];
-  return matches.map((match, index) => {
-    const start = match.index;
-    const end = index + 1 < matches.length ? matches[index + 1].index : text.length;
-    return text.slice(start, end);
-  });
+  return parseIssueBlocks(text).map(issue => issue.block);
 }
 
 function parseField(block, label) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = block.match(new RegExp(`- \\*\\*${escaped}\\*\\*:\\s*([^\\n]+)`));
-  return match ? match[1].trim() : null;
+  return parseIssueField(block, label);
 }
 
 function gate1EvidenceEligibility(blocks) {

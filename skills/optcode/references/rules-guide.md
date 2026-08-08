@@ -98,7 +98,7 @@ severity: low
 当 CR 发现被 defer 且标注原因为误报时，系统会分析高频误报模式并建议新规则。运行：
 
 ```bash
-node scripts/known-issues.js suggest-rules
+node "${CLAUDE_PLUGIN_ROOT}/scripts/known-issues.js" suggest-rules
 ```
 
 可查看基于历史误报的规则建议。
@@ -107,11 +107,11 @@ node scripts/known-issues.js suggest-rules
 
 ```bash
 # 初始化示例规则
-node scripts/rules-loader.js init
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rules-loader.js" init
 
 # 查看已有规则
-node scripts/rules-loader.js list
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rules-loader.js" list
 
 # 预览某维度会加载哪些规则
-node scripts/rules-loader.js context design
+node "${CLAUDE_PLUGIN_ROOT}/scripts/rules-loader.js" context design
 ```
